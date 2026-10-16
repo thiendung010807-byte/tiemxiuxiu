@@ -7,7 +7,7 @@ export async function POST(request: Request) {
   try {
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
     const now = Date.now();
-    if (requestWindows.size > 2000) for (const [key, value] of requestWindows) if (now - value.since > 600000) requestWindows.delete(key);
+    if (requestWindows.size > 2000) requestWindows.forEach((value, key) => { if (now - value.since > 600000) requestWindows.delete(key); });
     const prior = requestWindows.get(ip);
     if (prior && now - prior.since < 600000 && prior.count >= 10) return NextResponse.json({ error: 'Cậu yêu cầu QR quá nhiều lần. Hãy thử lại sau nhé.' }, { status: 429 });
     requestWindows.set(ip, !prior || now - prior.since >= 600000 ? { count: 1, since: now } : { ...prior, count: prior.count + 1 });

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { PRODUCTS } from "@/lib/pricing";
-import { ShoppingBag, Heart, Star, Sparkles, Send, X, ChevronLeft, ChevronRight, Trash2, Plus, MailHeart } from "lucide-react";
+import { ShoppingBag, Heart, Star, Sparkles, Send, X, ChevronLeft, ChevronRight, Trash2, Plus, Mail } from "lucide-react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -392,9 +392,9 @@ export default function Home() {
                <p className="text-xs text-gray-700">Mọi đơn đều được giao miễn phí. Khi viết hộ thiệp, thời gian giao được nhập riêng trên từng thiệp.</p>
              </div>
 
-             {cards.length === 0 ? <button type="button" onClick={addCard} className="w-full crayon-border bg-pinky p-4 font-bold text-lg shadow-sticker flex justify-center gap-2 items-center hover:-translate-y-1 transition-transform"><MailHeart size={22}/> Viết hộ thiệp (+3.000đ/thiệp)</button> : (
+             {cards.length === 0 ? <button type="button" onClick={addCard} className="w-full crayon-border bg-pinky p-4 font-bold text-lg shadow-sticker flex justify-center gap-2 items-center hover:-translate-y-1 transition-transform"><Mail size={22}/> Viết hộ thiệp (+3.000đ/thiệp)</button> : (
                <div className="space-y-3">
-                 <div className="flex items-center justify-between gap-3 flex-wrap"><h3 className="font-bold text-xl flex items-center gap-2"><MailHeart size={20}/> Viết hộ thiệp</h3><span className="rounded-full border-2 border-black bg-white px-4 py-2 font-bold" aria-live="polite">Thiệp {cardIndex + 1}/{cards.length}</span></div>
+                 <div className="flex items-center justify-between gap-3 flex-wrap"><h3 className="font-bold text-xl flex items-center gap-2"><Mail size={20}/> Viết hộ thiệp</h3><span className="rounded-full border-2 border-black bg-white px-4 py-2 font-bold" aria-live="polite">Thiệp {cardIndex + 1}/{cards.length}</span></div>
                  <div className="flex flex-col sm:flex-row gap-3 items-stretch">
                    <div className="min-w-0 flex-1 overflow-hidden">
                      <AnimatePresence mode="wait" initial={false} custom={cardDirection}>
