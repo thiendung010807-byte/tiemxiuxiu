@@ -9,6 +9,13 @@ import { syncOrderToSheetSafely } from '@/lib/order-sheet';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// Preserve the dynamic Firestore fields when projecting document IDs.
+type AdminOrder = Record<string, unknown> & { _docId: string };
+const toAdminOrder = (doc: { id: string; data(): Record<string, unknown> }): AdminOrder => ({
+  ...doc.data(),
+  _docId: doc.id,
+});
+
 export async function GET(request: Request) {
   const admin = await verifyAdminRequest(request);
   if (!admin) return NextResponse.json({ error: 'Tài khoản này chưa được cấp quyền quản trị. Hãy đăng xuất và dùng email có trong ADMIN_EMAILS.' }, { status: 403 });
@@ -17,7 +24,7 @@ export async function GET(request: Request) {
     // Delivery queue is sorted globally (not only among the newest orders).
     if (url.searchParams.get('view') === 'delivery') {
       const snapshot = await adminDb().collection('orders').where('payment_status', '==', 'paid').get();
-      const orders = snapshot.docs.map(doc => ({ ...(doc.data() as Record<string, unknown>), _docId: doc.id }))
+      const orders = snapshot.docs.map(toAdminOrder)
         .filter(order => order.order_status !== 'delivered' && order.order_status !== 'cancelled')
         .sort((a, b) => requestedDeliveryTime(a) - requestedDeliveryTime(b) || String(a.created_at || '').localeCompare(String(b.created_at || '')));
       return NextResponse.json({ orders, nextCursor: null }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
@@ -31,7 +38,7 @@ export async function GET(request: Request) {
       query = query.startAfter(cursorDoc);
     }
     const snapshot = await query.get();
-    const orders = snapshot.docs.map(doc => ({ ...(doc.data() as Record<string, unknown>), _docId: doc.id }));
+    const orders = snapshot.docs.map(toAdminOrder);
     const nextCursor = snapshot.size === 150 ? snapshot.docs[snapshot.docs.length - 1].id : null;
     return NextResponse.json({ orders, nextCursor }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error) {
