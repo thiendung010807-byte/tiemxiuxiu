@@ -1,4 +1,4 @@
-# Tiệm Xíu Xiu — 20/10 gift shop
+# Tiệm Xíu Xiu —
 
 Next.js 14 + TypeScript storefront. Firebase Firestore is the source of truth for orders; Google Sheets is only a small contact-information export; Cloudinary stores payment-proof images. Payment remains manually verified by the shop.
 
