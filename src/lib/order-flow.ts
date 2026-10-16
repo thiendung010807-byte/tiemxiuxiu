@@ -37,12 +37,19 @@ export type Quote = { orderId: string; createdAt: string; expiresAt: number; dat
 
 export async function buildQuote(data: OrderInput): Promise<Quote> {
   const snapshot = await adminDb().collection('products').get();
-  const overrides = new Map(snapshot.docs.map(d => [d.id, { ...d.data(), id: d.id }]));
-  const catalog = [...PRODUCTS.map(p => ({ ...p, ...(overrides.get(p.id) || {}) })), ...snapshot.docs.filter(d => !PRODUCTS.some(p => p.id === d.id)).map(d => ({ ...d.data(), id: d.id }))];
+  // Firestore documents are dynamic; retain unknown field types until validated.
+  type CatalogProduct = { id: string; name: unknown; price: unknown; active?: unknown };
+  const overrides = new Map<string, CatalogProduct>(snapshot.docs.map(d => [d.id, { ...d.data(), id: d.id }]));
+  const catalog: CatalogProduct[] = [
+    ...PRODUCTS.map(p => ({ ...p, ...(overrides.get(p.id) || {}) })),
+    ...snapshot.docs.filter(d => !PRODUCTS.some(p => p.id === d.id)).map(d => ({ ...d.data(), id: d.id })),
+  ];
   const products = data.items.map(item => {
     const found = catalog.find(p => p.id === item.id);
-    if (!found || found.active === false || !Number.isSafeInteger(found.price) || found.price <= 0) throw new Error('Sản phẩm đã hết bán hoặc giá không hợp lệ. Cậu tải lại trang nhé.');
-    return { id: item.id, name: String(found.name), quantity: item.quantity, unit_price: found.price, line_total: found.price * item.quantity };
+    if (!found || found.active === false || typeof found.price !== 'number' || !Number.isSafeInteger(found.price) || found.price <= 0 || typeof found.name !== 'string' || !found.name.trim()) {
+      throw new Error('Sản phẩm đã hết bán hoặc giá không hợp lệ. Cậu tải lại trang nhé.');
+    }
+    return { id: item.id, name: found.name, quantity: item.quantity, unit_price: found.price, line_total: found.price * item.quantity };
   });
   const subtotal = products.reduce((sum, item) => sum + item.line_total, 0);
   const giftFee = data.cards.length * 3000;
