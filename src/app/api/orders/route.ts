@@ -5,6 +5,7 @@ import { adminDb } from '@/lib/firebase-admin';
 import { verifyQuote } from '@/lib/order-flow';
 import { verifyUploadedProof } from '@/lib/cloudinary-proof';
 import { syncOrderToSheetSafely } from '@/lib/order-sheet';
+import { getOrderTab } from '@/lib/order-tab';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
     const order = {
       order_id: quote.orderId, created_at: new Date().toISOString(), quote_created_at: quote.createdAt,
       customer_name: data.customer.name, customer_phone: data.customer.phone, customer_address: data.customer.address, customer_time: data.cards.length ? '' : data.customer.time,
-      gift_option: data.cards.length ? 'shop' : 'self',
+      gift_option: getOrderTab({ cards }) === 'Người tự nhận' ? 'self' : 'shop',
       sender_name: data.customer.name, sender_phone: data.customer.phone, sender_address: data.customer.address,
       recipient_name: firstCard?.actualRecipientName || '', recipient_phone: firstCard?.actualRecipientContact || '', recipient_address: firstCard?.actualRecipientAddress || '', recipient_time: firstCard?.deliveryTime || '', card_message: firstCard?.message || '',
       cards, cards_json: JSON.stringify(cards), card_count: cards.length,

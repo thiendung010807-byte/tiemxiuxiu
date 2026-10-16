@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { adminDb, verifyAdminRequest } from '@/lib/firebase-admin';
-import { updateOrderStatusInSheet, type OrderTab } from '@/lib/sheets';
+import { updateOrderStatusInSheet } from '@/lib/sheets';
+import { getOrderTab } from '@/lib/order-tab';
 import { syncOrderToSheetSafely } from '@/lib/order-sheet';
 
 export const runtime = 'nodejs';
@@ -45,7 +46,7 @@ export async function PATCH(request: Request) {
     await ref.update({ payment_status: paymentStatus, order_status: nextOrderStatus, updated_at: new Date().toISOString(), updated_by: admin.email });
     let sheetSync = true;
     try {
-      const tab: OrderTab = current.gift_option === 'self' ? 'Người tự nhận' : 'Người giao hộ';
+      const tab = getOrderTab(current);
       await updateOrderStatusInSheet(tab, orderId, paymentStatus, nextOrderStatus);
     } catch (sheetError) {
       sheetSync = false;

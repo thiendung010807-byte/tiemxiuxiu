@@ -1,7 +1,8 @@
 import 'server-only';
 import { adminDb } from '@/lib/firebase-admin';
 import { randomUUID } from 'crypto';
-import { appendOrderToSheet, type OrderTab } from '@/lib/sheets';
+import { appendOrderToSheet } from '@/lib/sheets';
+import { getOrderTab } from '@/lib/order-tab';
 
 type DbOrder = Record<string, unknown>;
 type Product = { name: string; quantity: number; unit_price: number; line_total: number };
@@ -12,12 +13,12 @@ const num = (value: unknown) => Number(value || 0);
 export async function syncOrderToSheet(order: DbOrder) {
   const products: Product[] = Array.isArray(order.products) ? order.products as Product[] : [];
   const cards: Card[] = Array.isArray(order.cards) ? order.cards as Card[] : [];
-  const tab: OrderTab = order.gift_option === 'shop' ? 'Người giao hộ' : 'Người tự nhận';
+  const tab = getOrderTab(order);
   const productDetails = products.map(p => `${p.name} × ${p.quantity} | Đơn giá: ${p.unit_price} VNĐ | Thành tiền: ${p.line_total} VNĐ`).join('\n') + (num(order.discount_amount) ? `\nVoucher từ 30 sản phẩm: -${num(order.discount_amount)} VNĐ` : '');
   const quantities = products.map(p => `${p.name}: ${p.quantity}`).join('\n');
   const cardDetails = cards.map((card, index) => `Thiệp ${index + 1}: ${card.deliveryToCustomer ? 'Giao về người đặt' : `Người nhận: ${card.recipientName} (${card.recipientContact}), ${card.recipientAddress}`} | Người gửi: ${card.senderDisplayName || 'Ẩn danh'} | Thời gian: ${card.deliveryTime} | Lời nhắn: ${card.message || '(trống)'}`).join('\n');
   await appendOrderToSheet(tab, [
-    str(order.order_id), str(order.created_at), cards.length ? 'Viết hộ thiệp' : tab === 'Người tự nhận' ? 'Tự nhận' : 'Giao hộ',
+    str(order.order_id), str(order.created_at), cards.length ? (tab === 'Người tự nhận' ? 'Viết hộ thiệp - Người tự nhận' : 'Viết hộ thiệp - Giao hộ') : tab === 'Người tự nhận' ? 'Tự nhận' : 'Giao hộ',
     str(order.customer_name), str(order.customer_phone), str(order.customer_address), str(order.customer_time),
     str(order.sender_name), str(order.sender_phone), str(order.sender_address),
     cards.length ? cards.map(c => c.actualRecipientName).join(' | ') : str(order.recipient_name),

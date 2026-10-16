@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { compareSecret, readLimitedJson, enforceRateLimit } from '@/lib/request-security';
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase-admin';
+import { getOrderTab } from '@/lib/order-tab';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 const schema = z.object({ orderId: z.string().min(8).max(80), paymentStatus: z.enum(['pending_confirmation','paid','rejected']), orderStatus: z.enum(['new','preparing','ready_for_pickup','delivered','cancelled']), tab: z.enum(['Người tự nhận','Người giao hộ']).optional() });
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
     const { orderId, paymentStatus, orderStatus } = parsed.data;
     const ref = adminDb().collection('orders').doc(orderId), snap = await ref.get();
     if (!snap.exists) return NextResponse.json({ error: 'Không tìm thấy đơn' }, { status: 404 });
-    if (parsed.data.tab && parsed.data.tab !== (snap.data()?.gift_option === 'shop' ? 'Người giao hộ' : 'Người tự nhận')) return NextResponse.json({ error: 'Tab không khớp đơn hàng' }, { status: 409 });
+    if (parsed.data.tab && parsed.data.tab !== getOrderTab(snap.data() || {})) return NextResponse.json({ error: 'Tab không khớp đơn hàng' }, { status: 409 });
     await ref.update({ payment_status: paymentStatus, order_status: orderStatus, updated_at: new Date().toISOString(), updated_by: 'google-sheets' });
     return NextResponse.json({ ok: true });
   } catch (error) {
