@@ -272,7 +272,7 @@ export default function Home() {
             </button>
             
             <div className="relative w-full aspect-square crayon-border overflow-hidden mb-3 bg-gray-100 z-10">
-              <Image src={selectedProduct.images[Math.min(currentImgIdx, selectedProduct.images.length - 1)] || "/images/hoa-xinh.svg"} alt={selectedProduct.name} fill className="object-cover" />
+              <Image src={selectedProduct.images[Math.min(currentImgIdx, selectedProduct.images.length - 1)] || "/images/hoa.png"} alt={selectedProduct.name} fill className="object-cover" />
             </div>
             {selectedProduct.images.length > 1 && <div className="mb-5 flex gap-2 overflow-x-auto pb-1">{selectedProduct.images.map((src, index) => <button key={`${src}-${index}`} onClick={() => setCurrentImgIdx(index)} aria-label={`Xem ảnh ${index + 1}`} className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border-2 ${currentImgIdx === index ? 'border-pink-600' : 'border-gray-300'}`}><Image src={src} alt={`${selectedProduct.name} ${index + 1}`} fill className="object-cover" /></button>)}</div>}
 
