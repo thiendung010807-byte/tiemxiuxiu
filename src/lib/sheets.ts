@@ -212,3 +212,22 @@ export async function updateOrderStatusInSheet(
     requestBody: { values: [[safeCell(paymentStatus), safeCell(orderStatus)]] },
   });
 }
+
+
+// Remove matching order rows from BOTH tabs so a previously moved order cannot remain orphaned.
+// Delete from bottom to top so row indices stay valid. Keep the header row intact.
+export async function deleteOrderFromSheets(orderId: string) {
+  const { api, spreadsheetId } = getSheets();
+  const metadata = await api.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties(sheetId,title)' });
+  for (const tab of ['Người tự nhận', 'Người giao hộ']) {
+    const sheet = metadata.data.sheets?.find(s => s.properties?.title === tab);
+    const sheetId = sheet?.properties?.sheetId;
+    if (sheetId === undefined || sheetId === null) continue;
+    const result = await api.spreadsheets.values.get({ spreadsheetId, range: `'${tab}'!A2:A` });
+    const indices = (result.data.values || []).flatMap((row, index) => String(row[0] || '') === orderId ? [index + 1] : []);
+    if (!indices.length) continue;
+    await api.spreadsheets.batchUpdate({ spreadsheetId, requestBody: {
+      requests: indices.reverse().map(index => ({ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: index, endIndex: index + 1 } } }))
+    } });
+  }
+}
