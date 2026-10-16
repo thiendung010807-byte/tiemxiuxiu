@@ -106,15 +106,7 @@ export default function AdminDashboard() {
         const signedResponse = await fetch('/api/admin/products/sign', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ productId: productId.trim() }) });
         const signed = await signedResponse.json();
         if (!signedResponse.ok) throw new Error(signed.error || 'Không ký được ảnh');
-        
-        const form = new FormData(); 
-        form.append('file', file); 
-        form.append('api_key', signed.apiKey); 
-        form.append('timestamp', String(signed.timestamp)); 
-        form.append('public_id', signed.publicId); 
-        // 👇 Xóa dòng append upload_preset
-        form.append('signature', signed.signature);
-        
+        const form = new FormData(); form.append('file', file); form.append('api_key', signed.apiKey); form.append('timestamp', String(signed.timestamp)); form.append('public_id', signed.publicId); form.append('upload_preset', signed.uploadPreset); form.append('signature', signed.signature);
         const uploadResponse = await fetch(`https://api.cloudinary.com/v1_1/${signed.cloudName}/image/upload`, { method: 'POST', body: form });
         const uploaded = await uploadResponse.json();
         if (!uploadResponse.ok) throw new Error(uploaded.error?.message || 'Tải ảnh lên thất bại');
