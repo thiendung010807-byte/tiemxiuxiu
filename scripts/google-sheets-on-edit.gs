@@ -5,7 +5,7 @@
  * Install an on-edit trigger for onEditOrderStatus from Apps Script Triggers.
  */
 const WEB_APP_URL = 'https://YOUR_DOMAIN/api/sheets/webhook';
-const SHARED_SECRET = 'REPLACE_WITH_SHEETS_WEBHOOK_SECRET';
+// Set SHEETS_WEBHOOK_SECRET in Apps Script > Project Settings > Script properties.
 const ALLOWED_TABS = ['Người tự nhận', 'Người giao hộ'];
 const PAYMENT = ['pending_confirmation', 'paid', 'rejected'];
 const ORDER = ['new', 'preparing', 'ready_for_pickup', 'delivered', 'cancelled'];
@@ -26,9 +26,11 @@ function onEditOrderStatus(e) {
   if (!orderId || !PAYMENT.includes(paymentStatus) || !ORDER.includes(orderStatus)) {
     throw new Error('Mã đơn hoặc trạng thái không hợp lệ. Dùng các giá trị trạng thái hệ thống.');
   }
+  const secret = PropertiesService.getScriptProperties().getProperty('SHEETS_WEBHOOK_SECRET');
+  if (!secret || secret.length < 32) throw new Error('Chưa cấu hình SHEETS_WEBHOOK_SECRET trong Script properties');
   const response = UrlFetchApp.fetch(WEB_APP_URL, {
     method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-    headers: { 'x-sheets-secret': SHARED_SECRET },
+    headers: { 'x-sheets-secret': secret },
     payload: JSON.stringify({ orderId, paymentStatus, orderStatus, tab })
   });
   if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {

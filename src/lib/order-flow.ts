@@ -1,5 +1,6 @@
 import 'server-only';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { deflateRawSync, inflateRawSync } from 'zlib';
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase-admin';
 import { PRODUCTS, calculateVoucher } from '@/lib/pricing';
@@ -69,22 +70,22 @@ export async function buildQuote(data: OrderInput): Promise<Quote> {
 }
 
 function quoteSecret() {
-  const secret = process.env.ORDER_QUOTE_SECRET || process.env.CLOUDINARY_API_SECRET;
-  if (!secret || secret.length < 16) throw new Error('ORDER_QUOTE_SECRET chưa được cấu hình an toàn');
+  const secret = process.env.ORDER_QUOTE_SECRET;
+  if (!secret || secret.length < 32) throw new Error('ORDER_QUOTE_SECRET chưa được cấu hình an toàn');
   return secret;
 }
 export function signQuote(quote: Quote) {
-  const encoded = Buffer.from(JSON.stringify(quote)).toString('base64url');
+  const encoded = deflateRawSync(Buffer.from(JSON.stringify(quote))).toString('base64url');
   return `${encoded}.${createHmac('sha256', quoteSecret()).update(encoded).digest('base64url')}`;
 }
 export function verifyQuote(token: string): Quote {
-  if (!token || token.length > 10000000) throw new Error('Phiên thanh toán không hợp lệ');
+  if (!token || token.length > 120000) throw new Error('Phiên thanh toán không hợp lệ');
   const [encoded, signature, extra] = token.split('.');
   if (!encoded || !signature || extra) throw new Error('Phiên thanh toán không hợp lệ');
   const expected = createHmac('sha256', quoteSecret()).update(encoded).digest();
   const given = Buffer.from(signature, 'base64url');
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) throw new Error('Phiên thanh toán đã bị thay đổi');
-  const quote = JSON.parse(Buffer.from(encoded, 'base64url').toString()) as Quote;
+  const quote = JSON.parse(inflateRawSync(Buffer.from(encoded, 'base64url'), { maxOutputLength: 2_000_000 }).toString()) as Quote;
   if (!quote || quote.expiresAt < Date.now() || quote.expiresAt > Date.now() + 91 * 60 * 1000 || !/^XX[A-Z0-9]+$/.test(quote.orderId)) throw new Error('Phiên thanh toán hết hạn. Vui lòng tạo mã QR mới.');
   return quote;
 }

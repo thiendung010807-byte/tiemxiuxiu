@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { adminDb, verifyAdminRequest } from '@/lib/firebase-admin';
 import { updateOrderStatusInSheet, type OrderTab } from '@/lib/sheets';
-import { syncOrderToSheet } from '@/lib/order-sheet';
+import { syncOrderToSheetSafely } from '@/lib/order-sheet';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     const ref = adminDb().collection('orders').doc(parsed.data.orderId);
     const snap = await ref.get();
     if (!snap.exists) return NextResponse.json({ error: 'Không tìm thấy đơn' }, { status: 404 });
-    await syncOrderToSheet(snap.data()!);
+    await syncOrderToSheetSafely(snap.data()!);
     await ref.update({ sheet_sync_status: 'synced', sheet_synced_at: new Date().toISOString() });
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -13,6 +13,6 @@ export async function GET() {
     return NextResponse.json({ products }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('Load products failed:', error instanceof Error ? error.message : 'unknown error');
-    return NextResponse.json({ products: PRODUCTS, fallback: true }, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json({ error: 'Tạm thời không tải được danh sách sản phẩm, vui lòng thử lại.' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
   }
 }

@@ -1,4 +1,6 @@
 import 'server-only';
+import { adminDb } from '@/lib/firebase-admin';
+import { randomUUID } from 'crypto';
 import { appendOrderToSheet, type OrderTab } from '@/lib/sheets';
 
 type DbOrder = Record<string, unknown>;
@@ -26,4 +28,27 @@ export async function syncOrderToSheet(order: DbOrder) {
     str(order.payment_method), str(order.payment_status), str(order.order_status),
     cards.length ? cardDetails : str(order.card_message), str(order.customer_note), str(order.payment_proof_url), str(order.payment_proof_uploaded_at),
   ]);
+}
+
+// Lease serializes writers across serverless instances. Stale leases expire automatically.
+export async function syncOrderToSheetSafely(order: DbOrder) {
+  const id = str(order.order_id);
+  if (!/^XX[A-Z0-9]{8,50}$/.test(id)) throw new Error('Mã đơn không hợp lệ');
+  const ref = adminDb().collection('_sheet_sync_locks').doc(id);
+  const owner = randomUUID();
+  const acquired = await adminDb().runTransaction(async tx => {
+    const doc = await tx.get(ref);
+    const until = Number(doc.data()?.lockedUntil || 0);
+    if (until > Date.now()) return false;
+    tx.set(ref, { owner, lockedUntil: Date.now() + 120000 }, { merge: true });
+    return true;
+  });
+  if (!acquired) throw new Error('Đơn đang được đồng bộ ở yêu cầu khác; thử lại sau.');
+  try { await syncOrderToSheet(order); }
+  finally {
+    await adminDb().runTransaction(async tx => {
+      const doc = await tx.get(ref);
+      if (doc.data()?.owner === owner) tx.delete(ref);
+    }).catch(err => console.error('Could not release sync lease', err));
+  }
 }

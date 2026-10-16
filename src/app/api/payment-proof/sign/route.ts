@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { checkOrigin, enforceRateLimit, readLimitedJson } from '@/lib/request-security';
 import { createHash, randomBytes } from 'crypto';
 import { z } from 'zod';
 import { verifyQuote } from '@/lib/order-flow';
@@ -6,7 +7,9 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   try {
-    const parsed = z.object({ quoteToken: z.string().min(20).max(120000) }).safeParse(await request.json());
+    if (!checkOrigin(request)) return NextResponse.json({ error: 'Origin không hợp lệ' }, { status: 403 });
+    await enforceRateLimit(request, 'proof-sign', 20, 600);
+    const parsed = z.object({ quoteToken: z.string().min(20).max(120000) }).safeParse(await readLimitedJson(request, 150_000));
     if (!parsed.success) return NextResponse.json({ error: 'Phiên thanh toán không hợp lệ' }, { status: 400 });
     const quote = verifyQuote(parsed.data.quoteToken);
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;

@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
+import { checkOrigin, enforceRateLimit, readLimitedJson } from '@/lib/request-security';
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase-admin';
 import { verifyQuote } from '@/lib/order-flow';
 import { verifyUploadedProof } from '@/lib/cloudinary-proof';
-import { syncOrderToSheet } from '@/lib/order-sheet';
+import { syncOrderToSheetSafely } from '@/lib/order-sheet';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,10 +12,9 @@ const schema = z.object({ quoteToken: z.string().min(20).max(120000), proofUrl: 
 
 export async function POST(request: Request) {
   try {
-    const origin = request.headers.get('origin'), host = request.headers.get('host');
-    if (origin && host && new URL(origin).host !== host) return NextResponse.json({ error: 'Origin không hợp lệ' }, { status: 403 });
-    if (Number(request.headers.get('content-length') || 0) > 135000) return NextResponse.json({ error: 'Dữ liệu đơn hàng quá lớn' }, { status: 413 });
-    const parsed = schema.safeParse(await request.json());
+    if (!checkOrigin(request)) return NextResponse.json({ error: 'Origin không hợp lệ' }, { status: 403 });
+    await enforceRateLimit(request, 'complete', 20, 600);
+    const parsed = schema.safeParse(await readLimitedJson(request, 150_000));
     if (!parsed.success) return NextResponse.json({ error: 'Thông tin hoàn tất đơn chưa hợp lệ' }, { status: 400 });
     const { quoteToken, proofPublicId, proofUrl } = parsed.data;
     const quote = verifyQuote(quoteToken);
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     await ref.create(order);
     let sheetSync = true;
     try {
-      await syncOrderToSheet(order);
+      await syncOrderToSheetSafely(order);
       await ref.update({ sheet_sync_status: 'synced' });
     } catch (e) {
       sheetSync = false;
