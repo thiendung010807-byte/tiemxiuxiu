@@ -18,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </div>
                 <div className="flex-1 space-y-2 text-sm font-bold">
                    <p className="flex items-center gap-2">📞 Hotline: <a href="tel:0983272798" className="text-blue-600">0983.272.798 (Mr. Phạm Tuấn Minh)</a></p>
-                   <p className="flex items-center gap-2">🌐 Fanpage: <a href="https://www.facebook.com/doisinhvientinhnguyendonghuongbacninh" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">SVTN Đồng hương Bắc Ninh</a></p>
+                   <p className="flex items-center gap-2">🌐 Fanpage: <a href="https://www.facebook.com/doisinhvientinhnguyendonghuongbacninh" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Đội Sinh viên Tình nguyện Đồng hương Bắc Ninh - NEU</a></p>
                    <p className="flex items-center gap-2">🎵 Tiktok: <a href="https://www.tiktok.com/@bnc_neu" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">@bnc_neu</a></p>
                    <p className="flex items-center gap-2">✉️ Email: doisinhvientinhnguyendonghuongbacninh@gmail.com</p>
                 </div>

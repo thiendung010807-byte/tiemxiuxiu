@@ -1,4 +1,5 @@
 "use client";
+import { calculateVoucher } from '@/lib/pricing';
 import { useState, useEffect, useRef } from "react";
 import { PRODUCTS } from "@/lib/pricing";
 import { ShoppingBag, Heart, Star, Sparkles, Send, X, ChevronLeft, ChevronRight, Trash2, Plus, Mail } from "lucide-react";
@@ -146,7 +147,8 @@ export default function Home() {
   const pricing = (() => {
     const subtotal = cart.reduce((sum, item) => sum + (products.find(p => p.id === item.id)?.price || 0) * item.quantity, 0);
     const gift_service_fee = cards.length * 3000;
-    return { subtotal, gift_service_fee, total: subtotal + gift_service_fee };
+    const discount = calculateVoucher(totalQty);
+    return { subtotal, gift_service_fee, discount, total: Math.max(0, subtotal + gift_service_fee - discount) };
   })();
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
@@ -369,6 +371,8 @@ export default function Home() {
                      <span>{pricing.subtotal.toLocaleString("vi-VN")}đ</span>
                    </div>
                    
+                   {totalQty >= 30 && <p className="mt-2 text-right text-sm font-bold text-green-700">🎁 Voucher tự động: -30.000đ cho {totalQty} sản phẩm</p>}
+
                    <button onClick={() => setStep("checkout")} className="w-full crayon-border bg-greeny py-4 font-bold text-xl mt-6 hover:translate-y-1 transition-transform">
                      Tiến hành đặt quà!
                    </button>
@@ -429,7 +433,7 @@ export default function Home() {
              <div className="crayon-border bg-yellows p-6 shadow-sticker">
                  <h3 className="font-bold text-xl mb-2">Tổng kết</h3>
                  <div className="mb-4"><textarea placeholder="Ghi chú thêm cho tiệm" className="crayon-input w-full h-20 resize-none" value={note} onChange={e => setNote(e.target.value)} /><p className="mt-1 text-xs text-gray-600">Không bắt buộc.</p></div>
-                 <div className="space-y-2 border-t-2 border-dashed border-black/30 py-4 text-sm font-bold"><div className="flex justify-between"><span>Sản phẩm ({totalQty})</span><span>{pricing.subtotal.toLocaleString('vi-VN')}đ</span></div><div className="flex justify-between"><span>Viết hộ thiệp ({cards.length} × 3.000đ)</span><span>{pricing.gift_service_fee.toLocaleString('vi-VN')}đ</span></div></div>
+                 <div className="space-y-2 border-t-2 border-dashed border-black/30 py-4 text-sm font-bold"><div className="flex justify-between"><span>Sản phẩm ({totalQty})</span><span>{pricing.subtotal.toLocaleString('vi-VN')}đ</span></div><div className="flex justify-between"><span>Viết hộ thiệp ({cards.length} × 3.000đ)</span><span>{pricing.gift_service_fee.toLocaleString('vi-VN')}đ</span></div><div className="flex justify-between text-green-700"><span>Voucher từ 30 sản phẩm {totalQty >= 30 ? '(đã áp dụng)' : '(chưa đủ điều kiện)'}</span><span>-{pricing.discount.toLocaleString('vi-VN')}đ</span></div></div>
                  <div className="flex justify-between font-bold text-2xl mb-4"><span>Tổng cộng:</span><span className="text-pink-600">{pricing.total.toLocaleString("vi-VN")}đ</span></div>
                  <label className="flex items-start gap-2 mb-4 cursor-pointer">
                     <input type="checkbox" required checked={consent} onChange={e=>setConsent(e.target.checked)} className="mt-1 w-5 h-5 shrink-0"/>

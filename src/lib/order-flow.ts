@@ -2,7 +2,7 @@ import 'server-only';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase-admin';
-import { PRODUCTS } from '@/lib/pricing';
+import { PRODUCTS, calculateVoucher } from '@/lib/pricing';
 
 const phone = z.string().trim().regex(/^[0-9+().\s-]{8,20}$/, 'Số điện thoại chưa hợp lệ');
 const contact = z.string().trim().max(300).refine(v => !v || /^[0-9+().\s-]{8,20}$/.test(v) || /^https?:\/\/(www\.|m\.)?(facebook\.com|fb\.com|fb\.me)\//i.test(v), 'Nhập số điện thoại hoặc đường dẫn Facebook hợp lệ');
@@ -33,7 +33,7 @@ export const orderSchema = z.object({
 export type OrderInput = z.infer<typeof orderSchema>;
 export type Card = OrderInput['cards'][number];
 export type OrderProduct = { id: string; name: string; quantity: number; unit_price: number; line_total: number };
-export type Quote = { orderId: string; createdAt: string; expiresAt: number; data: OrderInput; products: OrderProduct[]; subtotal: number; giftFee: number; total: number };
+export type Quote = { orderId: string; createdAt: string; expiresAt: number; data: OrderInput; products: OrderProduct[]; subtotal: number; giftFee: number; discount: number; total: number };
 
 export async function buildQuote(data: OrderInput): Promise<Quote> {
   const snapshot = await adminDb().collection('products').get();
@@ -64,7 +64,8 @@ export async function buildQuote(data: OrderInput): Promise<Quote> {
   });
   const subtotal = products.reduce((sum, item) => sum + item.line_total, 0);
   const giftFee = data.cards.length * 3000;
-  return { orderId: `XX${Date.now().toString(36).toUpperCase()}${randomBytes(5).toString('hex').toUpperCase()}`, createdAt: new Date().toISOString(), expiresAt: Date.now() + 90 * 60 * 1000, data, products, subtotal, giftFee, total: subtotal + giftFee };
+  const discount = calculateVoucher(data.items.reduce((sum, item) => sum + item.quantity, 0));
+  return { orderId: `XX${Date.now().toString(36).toUpperCase()}${randomBytes(5).toString('hex').toUpperCase()}`, createdAt: new Date().toISOString(), expiresAt: Date.now() + 90 * 60 * 1000, data, products, subtotal, giftFee, discount, total: Math.max(0, subtotal + giftFee - discount) };
 }
 
 function quoteSecret() {

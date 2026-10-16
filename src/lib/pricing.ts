@@ -13,6 +13,11 @@ export const PRODUCTS = [
   }
 ];
 
+/** Automatic 30,000 VND voucher for orders with at least 30 products. */
+export const VOUCHER_THRESHOLD = 30;
+export const VOUCHER_AMOUNT = 30000;
+export const calculateVoucher = (quantity: number) => quantity >= VOUCHER_THRESHOLD ? VOUCHER_AMOUNT : 0;
+
 /** Every handwritten card costs 3,000 VND; shipping is always free. */
 export const calculateTotal = (items: { id: string; quantity: number }[], cardCount = 0) => {
   const subtotal = items.reduce((total, item) => {
@@ -20,5 +25,6 @@ export const calculateTotal = (items: { id: string; quantity: number }[], cardCo
     return total + (product?.price || 0) * item.quantity;
   }, 0);
   const gift_service_fee = Math.max(0, cardCount) * 3000;
-  return { subtotal, gift_service_fee, delivery_fee: 0, total: subtotal + gift_service_fee };
+  const discount = calculateVoucher(items.reduce((sum, item) => sum + item.quantity, 0));
+  return { subtotal, gift_service_fee, delivery_fee: 0, discount, total: Math.max(0, subtotal + gift_service_fee - discount) };
 };

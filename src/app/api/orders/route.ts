@@ -38,7 +38,7 @@ export async function POST(request: Request) {
       sender_name: data.customer.name, sender_phone: data.customer.phone, sender_address: data.customer.address,
       recipient_name: firstCard?.actualRecipientName || '', recipient_phone: firstCard?.actualRecipientContact || '', recipient_address: firstCard?.actualRecipientAddress || '', recipient_time: firstCard?.deliveryTime || '', card_message: firstCard?.message || '',
       cards, cards_json: JSON.stringify(cards), card_count: cards.length,
-      products: quote.products, products_json: JSON.stringify(quote.products), product_subtotal: quote.subtotal, gift_service_fee: quote.giftFee, delivery_fee: 0, total_amount: quote.total,
+      products: quote.products, products_json: JSON.stringify(quote.products), product_subtotal: quote.subtotal, gift_service_fee: quote.giftFee, delivery_fee: 0, discount_amount: quote.discount, total_amount: quote.total,
       payment_method: 'bank_transfer_qr', payment_status: 'pending_confirmation', order_status: 'new', customer_note: data.note, privacy_consent: true,
       payment_proof_url: proofUrl, payment_proof_public_id: proofPublicId, payment_proof_uploaded_at: verifiedProof.uploadedAt,
       sheet_sync_status: 'pending',
