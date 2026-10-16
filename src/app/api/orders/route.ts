@@ -32,7 +32,13 @@ const sheetText = (v: string) => /^[=+@\-]/.test(v) ? `'${v}` : v;
 export async function POST(request: Request) {
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   const now = Date.now();
-  if (requestWindows.size > 5000) for (const [key, value] of requestWindows) if (now - value.startedAt >= 600000) requestWindows.delete(key);
+  if (requestWindows.size > 5000) {
+  requestWindows.forEach((value, key) => {
+    if (now - value.startedAt >= 600000) {
+      requestWindows.delete(key);
+    }
+  });
+}
   const window = requestWindows.get(ip);
   if (window && now - window.startedAt < 600000 && window.count >= 8) return NextResponse.json({ error: 'Cậu gửi hơi nhanh rồi, thử lại sau ít phút nhé.' }, { status: 429 });
   if (!window || now - window.startedAt >= 600000) requestWindows.set(ip, { count: 1, startedAt: now });
