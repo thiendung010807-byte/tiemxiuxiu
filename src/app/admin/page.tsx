@@ -68,7 +68,21 @@ export default function AdminDashboard() {
 
   if (!authReady) return <div className="p-10 text-center">Đang kiểm tra đăng nhập…</div>;
   if (!firebaseConfigured || !firebaseAuth) return <div className="rounded-2xl border-2 border-dashed border-red-300 bg-white p-8"><h2 className="text-xl font-bold">Chưa cấu hình Firebase</h2><p className="mt-2 text-sm">Hãy điền các biến NEXT_PUBLIC_FIREBASE_* theo README và triển khai lại.</p></div>;
-  if (!user) return <div className="mx-auto max-w-md rounded-3xl border-2 border-black bg-white p-8 text-center shadow-sticker"><div className="text-5xl">🔐</div><h2 className="mt-4 text-2xl font-bold">Góc nhỏ của chủ tiệm</h2><p className="mt-2 text-sm text-gray-600">Đăng nhập bằng Google. Chỉ email được khai báo trong ADMIN_EMAILS ở máy chủ mới được đọc hoặc sửa đơn.</p><button onClick={() => signInWithPopup(firebaseAuth, googleProvider).catch(e => setError(e.message))} className="mt-6 inline-flex items-center gap-2 rounded-xl border-2 border-black bg-yellows px-5 py-3 font-bold"><LogIn size={18}/> Đăng nhập Google</button>{error && <p className="mt-4 text-sm text-red-600">{error}</p>}</div>;
+  if (!user) return <div className="mx-auto max-w-md rounded-3xl border-2 border-black bg-white p-8 text-center shadow-sticker"><div className="text-5xl">🔐</div><h2 className="mt-4 text-2xl font-bold">Góc nhỏ của chủ tiệm</h2><p className="mt-2 text-sm text-gray-600">Đăng nhập bằng Google. Chỉ email được khai báo trong ADMIN_EMAILS ở máy chủ mới được đọc hoặc sửa đơn.</p><button
+  onClick={() => {
+    if (!firebaseAuth) {
+      setError("Firebase chưa được khởi tạo. Vui lòng tải lại trang.");
+      return;
+    }
+
+    void signInWithPopup(firebaseAuth, googleProvider)
+      .catch((e) => setError(e.message));
+  }}
+  className="mt-6 inline-flex items-center gap-2 rounded-xl border-2 border-black bg-yellows px-5 py-3 font-bold"
+>
+  <LogIn size={18} />
+  Đăng nhập Google
+</button>{error && <p className="mt-4 text-sm text-red-600">{error}</p>}</div>;
 
   if (!authorizationChecked) return <div className="p-10 text-center">Đang xác minh quyền quản trị…</div>;
   if (accessDenied) return <div className="mx-auto max-w-lg rounded-3xl border-2 border-black bg-white p-8 text-center shadow-sticker"><div className="text-5xl">⛔</div><h2 className="mt-4 text-2xl font-bold">Email này chưa có quyền quản trị</h2><p className="mt-3 text-sm text-gray-600">Bạn đã đăng nhập Google nhưng email <b>{user.email}</b> chưa nằm trong biến ADMIN_EMAILS trên môi trường server. Hãy thêm đúng email chủ tiệm vào Vercel Environment Variables rồi redeploy, hoặc đăng xuất và dùng tài khoản đã được cấp quyền.</p><button onClick={() => signOut(firebaseAuth)} className="mt-6 inline-flex items-center gap-2 rounded-xl border-2 border-black bg-pinky px-5 py-3 font-bold"><LogOut size={18}/> Đăng xuất / đổi tài khoản</button><button onClick={() => void loadOrders()} className="ml-2 mt-6 inline-flex items-center gap-2 rounded-xl border-2 border-black bg-white px-5 py-3 font-bold"><RefreshCw size={16}/> Thử lại</button></div>;
