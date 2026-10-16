@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     // Delivery queue is sorted globally (not only among the newest orders).
     if (url.searchParams.get('view') === 'delivery') {
       const snapshot = await adminDb().collection('orders').where('payment_status', '==', 'paid').get();
-      const orders = snapshot.docs.map(doc => ({ ...doc.data(), _docId: doc.id }))
+      const orders = snapshot.docs.map(doc => ({ ...(doc.data() as Record<string, unknown>), _docId: doc.id }))
         .filter(order => order.order_status !== 'delivered' && order.order_status !== 'cancelled')
         .sort((a, b) => requestedDeliveryTime(a) - requestedDeliveryTime(b) || String(a.created_at || '').localeCompare(String(b.created_at || '')));
       return NextResponse.json({ orders, nextCursor: null }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
       query = query.startAfter(cursorDoc);
     }
     const snapshot = await query.get();
-    const orders = snapshot.docs.map(doc => ({ ...doc.data(), _docId: doc.id }));
+    const orders = snapshot.docs.map(doc => ({ ...(doc.data() as Record<string, unknown>), _docId: doc.id }));
     const nextCursor = snapshot.size === 150 ? snapshot.docs[snapshot.docs.length - 1].id : null;
     return NextResponse.json({ orders, nextCursor }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error) {
