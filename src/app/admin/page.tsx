@@ -85,10 +85,28 @@ export default function AdminDashboard() {
 </button>{error && <p className="mt-4 text-sm text-red-600">{error}</p>}</div>;
 
   if (!authorizationChecked) return <div className="p-10 text-center">Đang xác minh quyền quản trị…</div>;
-  if (accessDenied) return <div className="mx-auto max-w-lg rounded-3xl border-2 border-black bg-white p-8 text-center shadow-sticker"><div className="text-5xl">⛔</div><h2 className="mt-4 text-2xl font-bold">Email này chưa có quyền quản trị</h2><p className="mt-3 text-sm text-gray-600">Bạn đã đăng nhập Google nhưng email <b>{user.email}</b> chưa nằm trong biến ADMIN_EMAILS trên môi trường server. Hãy thêm đúng email chủ tiệm vào Vercel Environment Variables rồi redeploy, hoặc đăng xuất và dùng tài khoản đã được cấp quyền.</p><button onClick={() => signOut(firebaseAuth)} className="mt-6 inline-flex items-center gap-2 rounded-xl border-2 border-black bg-pinky px-5 py-3 font-bold"><LogOut size={18}/> Đăng xuất / đổi tài khoản</button><button onClick={() => void loadOrders()} className="ml-2 mt-6 inline-flex items-center gap-2 rounded-xl border-2 border-black bg-white px-5 py-3 font-bold"><RefreshCw size={16}/> Thử lại</button></div>;
+  if (accessDenied) return <div className="mx-auto max-w-lg rounded-3xl border-2 border-black bg-white p-8 text-center shadow-sticker"><div className="text-5xl">⛔</div><h2 className="mt-4 text-2xl font-bold">Email này chưa có quyền quản trị</h2><p className="mt-3 text-sm text-gray-600">Bạn đã đăng nhập Google nhưng email <b>{user.email}</b> chưa nằm trong biến ADMIN_EMAILS trên môi trường server. Hãy thêm đúng email chủ tiệm vào Vercel Environment Variables rồi redeploy, hoặc đăng xuất và dùng tài khoản đã được cấp quyền.</p><button onClick={() => {
+  if (!firebaseAuth) {
+    setError("Firebase chưa được khởi tạo. Vui lòng tải lại trang.");
+    return;
+  }
+
+  void signOut(firebaseAuth).catch((e) => {
+    setError(e instanceof Error ? e.message : "Không thể đăng xuất.");
+  });
+}} className="mt-6 inline-flex items-center gap-2 rounded-xl border-2 border-black bg-pinky px-5 py-3 font-bold"><LogOut size={18}/> Đăng xuất / đổi tài khoản</button><button onClick={() => void loadOrders()} className="ml-2 mt-6 inline-flex items-center gap-2 rounded-xl border-2 border-black bg-white px-5 py-3 font-bold"><RefreshCw size={16}/> Thử lại</button></div>;
 
   return <div className="space-y-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm text-gray-500">Đang đăng nhập: {user.email}</p><h1 className="text-3xl font-bold">Bảng điều khiển tiệm 🌷</h1></div><div className="flex gap-2"><button onClick={() => void loadOrders()} className="inline-flex items-center gap-2 rounded-xl border-2 border-black bg-white px-3 py-2 font-bold"><RefreshCw size={16}/> Làm mới</button><button onClick={() => signOut(firebaseAuth)} className="inline-flex items-center gap-2 rounded-xl border-2 border-black bg-pinky px-3 py-2 font-bold"><LogOut size={16}/> Đăng xuất</button></div></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm text-gray-500">Đang đăng nhập: {user.email}</p><h1 className="text-3xl font-bold">Bảng điều khiển tiệm 🌷</h1></div><div className="flex gap-2"><button onClick={() => void loadOrders()} className="inline-flex items-center gap-2 rounded-xl border-2 border-black bg-white px-3 py-2 font-bold"><RefreshCw size={16}/> Làm mới</button><button onClick={() => {
+  if (!firebaseAuth) {
+    setError("Firebase chưa được khởi tạo. Vui lòng tải lại trang.");
+    return;
+  }
+
+  void signOut(firebaseAuth).catch((e) => {
+    setError(e instanceof Error ? e.message : "Không thể đăng xuất.");
+  });
+}} className="inline-flex items-center gap-2 rounded-xl border-2 border-black bg-pinky px-3 py-2 font-bold"><LogOut size={16}/> Đăng xuất</button></div></div>
     {error && <div role="alert" className="rounded-xl border-2 border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
     <div className="grid gap-4 sm:grid-cols-3"><Metric icon={<PackageCheck/>} title="Tổng đơn" value={String(orders.length)}/><Metric icon={<Clock3/>} title="Chờ xác nhận tiền" value={String(waiting)}/><Metric icon={<Banknote/>} title="Doanh thu đã xác nhận" value={money(revenue)}/></div>
     <div className="rounded-2xl border-2 border-black bg-white p-4 shadow-sticker"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-bold">Đơn hàng</h2><label className="flex items-center gap-2 rounded-xl border-2 border-gray-200 px-3 py-2"><Search size={16}/><input className="min-w-0 outline-none" placeholder="Tìm mã, tên, số điện thoại" value={query} onChange={e => setQuery(e.target.value)}/></label></div>
