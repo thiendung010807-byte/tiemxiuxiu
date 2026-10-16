@@ -23,17 +23,44 @@ function getAdminApp(): App {
 export function adminDb() { return getFirestore(getAdminApp()); }
 
 export async function verifyAdminRequest(request: Request) {
-  const header = request.headers.get('authorization') || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (!token) return null;
+  const header = request.headers.get("authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+
+  if (!token) {
+    console.warn("[AdminAuth] Rejected: missing_token");
+    return null;
+  }
+
   try {
     const decoded = await getAuth(getAdminApp()).verifyIdToken(token, true);
-    const email = (decoded.email || '').trim().toLowerCase();
+
+    const email = (decoded.email || "").trim().toLowerCase();
     const adminEmails = (process.env.ADMIN_EMAILS ?? "")
-  .split(",")
-  .map((email) => email.trim().toLowerCase())
-  .filter(Boolean);
-    if (!decoded.email_verified || !email || adminEmails.length === 0 || !adminEmails.includes(email)) return null;
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+
+    const verified = decoded.email_verified === true;
+    const matched = adminEmails.includes(email);
+
+    if (!verified || !email || adminEmails.length === 0 || !matched) {
+      console.warn("[AdminAuth] Rejected:", {
+        emailPresent: Boolean(email),
+        emailVerified: verified,
+        adminListCount: adminEmails.length,
+        emailMatched: matched,
+      });
+      return null;
+    }
+
     return { uid: decoded.uid, email };
-  } catch { return null; }
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error
+        ? String(error.code)
+        : "unknown";
+
+    console.error("[AdminAuth] Token verification failed:", code);
+    return null;
+  }
 }
