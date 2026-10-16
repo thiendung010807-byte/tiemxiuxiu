@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { calculateTotal, PRODUCTS } from '@/lib/pricing';
 import { adminDb } from '@/lib/firebase-admin';
-import { appendContactInfo } from '@/lib/sheets';
+import { appendOrderToSheet } from '@/lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -70,13 +70,61 @@ export async function POST(request: Request) {
     // Firebase is the source of truth. The sheet is a small contact-only export.
     await adminDb().collection('orders').doc(orderId).create(order);
     let sheetSync = true;
-    try {
-      await appendContactInfo([
-        orderId, createdAt, sheetText(order.customer_name), order.customer_phone, sheetText(order.customer_address), sheetText(order.customer_time), order.gift_option,
-        sheetText(order.sender_name), order.sender_phone, sheetText(order.sender_address), sheetText(order.recipient_name), order.recipient_phone,
-        sheetText(order.recipient_address), sheetText(order.recipient_time), sheetText(order.card_message), sheetText(order.customer_note),
-      ]);
-    } catch (e) { sheetSync = false; console.error('Contact sheet sync failed:', e instanceof Error ? e.message : 'unknown error'); }
+
+try {
+  const tab = data.giftOption === 'self'
+    ? 'Người tự nhận'
+    : 'Người giao hộ';
+
+  const productDetails = order.products
+    .map(
+      (product) =>
+        `${product.name} × ${product.quantity} | ` +
+        `Đơn giá: ${product.unit_price} VNĐ | ` +
+        `Thành tiền: ${product.line_total} VNĐ`,
+    )
+    .join('\n');
+
+  const quantities = order.products
+    .map((product) => `${product.name}: ${product.quantity}`)
+    .join('\n');
+
+  await appendOrderToSheet(tab, [
+    order.order_id,
+    order.created_at,
+    order.gift_option === 'self' ? 'Tự nhận' : 'Giao hộ',
+    order.customer_name,
+    order.customer_phone,
+    order.customer_address,
+    order.customer_time,
+    order.sender_name,
+    order.sender_phone,
+    order.sender_address,
+    order.recipient_name,
+    order.recipient_phone,
+    order.recipient_address,
+    order.recipient_time,
+    productDetails,
+    quantities,
+    order.product_subtotal,
+    order.gift_service_fee,
+    order.delivery_fee,
+    order.total_amount,
+    order.payment_method,
+    order.payment_status,
+    order.order_status,
+    order.card_message,
+    order.customer_note,
+    order.payment_proof_url,
+    order.payment_proof_uploaded_at,
+  ]);
+} catch (e) {
+  sheetSync = false;
+  console.error(
+    'Order sheet sync failed:',
+    e instanceof Error ? e.message : 'unknown error',
+  );
+}
     const qrUrl = `https://img.vietqr.io/image/${encodeURIComponent(bankId)}-${encodeURIComponent(accountNo)}-qr_only.png?amount=${pricing.total}&addInfo=${encodeURIComponent(`TIEM ${orderId}`)}&accountName=${encodeURIComponent(accountName)}`;
     return NextResponse.json({ orderId, total: pricing.total, subtotal: pricing.subtotal, giftServiceFee: pricing.gift_service_fee, qrUrl, bank: { bankId, accountNo, accountName }, paymentStatus: 'pending_confirmation', sheetSync }, { status: 201 });
   } catch (error) {
