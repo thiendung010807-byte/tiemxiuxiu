@@ -39,10 +39,21 @@ export async function buildQuote(data: OrderInput): Promise<Quote> {
   const snapshot = await adminDb().collection('products').get();
   // Firestore documents are dynamic; retain unknown field types until validated.
   type CatalogProduct = { id: string; name: unknown; price: unknown; active?: unknown };
-  const overrides = new Map<string, CatalogProduct>(snapshot.docs.map(d => [d.id, { ...d.data(), id: d.id }]));
+  const overrides = new Map<string, CatalogProduct>(snapshot.docs.map(d => {
+    const data: Record<string, unknown> = d.data();
+    return [d.id, { id: d.id, name: data.name, price: data.price, active: data.active }];
+  }));
   const catalog: CatalogProduct[] = [
-    ...PRODUCTS.map(p => ({ ...p, ...(overrides.get(p.id) || {}) })),
-    ...snapshot.docs.filter(d => !PRODUCTS.some(p => p.id === d.id)).map(d => ({ ...d.data(), id: d.id })),
+    ...PRODUCTS.map(p => {
+      const override = overrides.get(p.id);
+      return {
+        id: p.id,
+        name: override?.name ?? p.name,
+        price: override?.price ?? p.price,
+        active: override?.active ?? true,
+      };
+    }),
+    ...Array.from(overrides.values()).filter(p => !PRODUCTS.some(base => base.id === p.id)),
   ];
   const products = data.items.map(item => {
     const found = catalog.find(p => p.id === item.id);
