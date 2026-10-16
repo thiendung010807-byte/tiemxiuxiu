@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
-import { calculateTotal, PRODUCTS } from '@/lib/pricing';
+import { PRODUCTS } from '@/lib/pricing';
 import { adminDb } from '@/lib/firebase-admin';
 import { appendOrderToSheet } from '@/lib/sheets';
 
@@ -14,12 +14,11 @@ const schema = z.object({
   giftOption: z.enum(['self', 'shop']),
   customer: z.object({ name: z.string().trim().min(2).max(100), phone, address: z.string().trim().min(3).max(300), time: z.string().trim().max(120).optional().default('') }),
   sender: z.object({ name: z.string().trim().max(100).optional().default(''), phone: phone.optional(), address: z.string().trim().max(300).optional().default('') }).optional(),
-  recipient: z.object({ name: z.string().trim().min(2).max(100), phone, address: z.string().trim().min(3).max(300), time: z.string().trim().max(120).optional().default(''), message: z.string().trim().max(500).optional().default('') }).optional(),
+  recipient: z.object({ name: z.string().trim().min(2).max(100), phone: z.string().trim().min(5).max(300).refine(v => /^[0-9+().\s-]{8,20}$/.test(v) || /^https?:\/\/(www\.)?facebook\.com\//i.test(v) || /^https?:\/\/(www\.)?fb\.com\//i.test(v), 'Nhập số điện thoại hoặc link Facebook hợp lệ'), address: z.string().trim().min(3).max(300), time: z.string().trim().max(120).optional().default(''), message: z.string().trim().max(500).optional().default('') }).optional(),
   note: z.string().trim().max(500).optional().default(''), consent: z.literal(true),
 }).superRefine((data, ctx) => {
   const seen = new Set<string>();
   for (const item of data.items) {
-    if (!PRODUCTS.some(p => p.id === item.id)) ctx.addIssue({ code: 'custom', path: ['items'], message: 'Sản phẩm không hợp lệ' });
     if (seen.has(item.id)) ctx.addIssue({ code: 'custom', path: ['items'], message: 'Sản phẩm bị lặp' });
     seen.add(item.id);
   }
@@ -27,7 +26,6 @@ const schema = z.object({
     ctx.addIssue({ code: 'custom', path: ['recipient'], message: 'Thiếu thông tin gửi quà hộ' });
   }
 });
-const sheetText = (v: string) => /^[=+@\-]/.test(v) ? `'${v}` : v;
 
 export async function POST(request: Request) {
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
@@ -50,12 +48,22 @@ export async function POST(request: Request) {
     const parsed = schema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || 'Thông tin đơn hàng chưa hợp lệ' }, { status: 400 });
     const data = parsed.data;
-    const pricing = calculateTotal(data.items, data.giftOption);
+    const productSnapshot = await adminDb().collection('products').get();
+    const overrides = new Map(productSnapshot.docs.map(doc => [doc.id, { ...doc.data(), id: doc.id }]));
+    const catalog: Array<{ id: string; name: string; price: number; active?: boolean }> = [...PRODUCTS.map(product => ({ ...product, ...(overrides.get(product.id) || {}) })), ...productSnapshot.docs.filter(doc => !PRODUCTS.some(product => product.id === doc.id)).map(doc => ({ ...doc.data(), id: doc.id }) as { id: string; name: string; price: number; active?: boolean })];
+    for (const item of data.items) {
+      if (!catalog.some(product => product.id === item.id && (product as {active?: boolean}).active !== false)) {
+        return NextResponse.json({ error: 'Sản phẩm không còn khả dụng. Cậu tải lại trang nhé.' }, { status: 400 });
+      }
+    }
+    const subtotal = data.items.reduce((sum, item) => sum + Number(catalog.find(p => p.id === item.id)?.price || 0) * item.quantity, 0);
+    const gift_service_fee = data.giftOption === 'shop' ? 3000 : 0;
+    const pricing = { subtotal, gift_service_fee, delivery_fee: 0, total: subtotal + gift_service_fee };
     if (pricing.subtotal <= 0) return NextResponse.json({ error: 'Giỏ hàng không hợp lệ' }, { status: 400 });
     const bankId = process.env.VIETQR_BANK_ID; const accountNo = process.env.VIETQR_ACCOUNT_NO; const accountName = process.env.VIETQR_ACCOUNT_NAME;
     if (!bankId || !accountNo || !accountName) return NextResponse.json({ error: 'Tiệm chưa cấu hình tài khoản nhận tiền.' }, { status: 503 });
     const orderId = `XX${Date.now().toString(36).toUpperCase()}${randomBytes(4).toString('hex').toUpperCase()}`;
-    const products = data.items.map(item => { const p = PRODUCTS.find(x => x.id === item.id)!; return { id: p.id, name: p.name, quantity: item.quantity, unit_price: p.price, line_total: p.price * item.quantity }; });
+    const products = data.items.map(item => { const p = catalog.find(x => x.id === item.id)!; return { id: p.id, name: p.name, quantity: item.quantity, unit_price: p.price, line_total: p.price * item.quantity }; });
     const createdAt = new Date().toISOString();
     const order = {
       order_id: orderId, created_at: createdAt,

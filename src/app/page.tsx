@@ -1,17 +1,21 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { PRODUCTS, calculateTotal } from "@/lib/pricing";
+import { PRODUCTS } from "@/lib/pricing";
 import { ShoppingBag, Heart, Star, Sparkles, Send, Check, X, ChevronLeft, ChevronRight, Camera, Trash2 } from "lucide-react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 
 type CartItem = { id: string; quantity: number };
+type Product = { id: string; name: string; desc: string; details: string; price: number; color: string; images: string[]; active?: boolean };
 
 export default function Home() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [step, setStep] = useState<"shop" | "cart" | "checkout" | "payment" | "success">("shop");
   
-  const [selectedProduct, setSelectedProduct] = useState<typeof PRODUCTS[0] | null>(null);
+  const [products, setProducts] = useState<Product[]>(PRODUCTS as Product[]);
+  const [productsLoaded, setProductsLoaded] = useState(false);
+  const [cartLoaded, setCartLoaded] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [detailQty, setDetailQty] = useState(1);
   const [currentImgIdx, setCurrentImgIdx] = useState(0);
   const [isAdding, setIsAdding] = useState(false);
@@ -48,26 +52,39 @@ export default function Home() {
   const totalQty = cart.reduce((a, b) => a + b.quantity, 0);
 
   useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [step]);
+
+  useEffect(() => {
     if (selectedProduct) document.body.style.overflow = 'hidden';
     else document.body.style.overflow = 'unset';
     return () => { document.body.style.overflow = 'unset'; }
   }, [selectedProduct]);
 
   useEffect(() => {
+    fetch("/api/products", { cache: "no-store" }).then(r => r.json()).then(data => {
+      if (Array.isArray(data.products) && data.products.length) setProducts(data.products);
+    }).catch(() => undefined).finally(() => setProductsLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    if (!productsLoaded) return;
     const saved = localStorage.getItem("xiuxiu_v4");
     if (saved) try {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed)) setCart(parsed.filter((item: unknown): item is CartItem => {
         if (!item || typeof item !== 'object') return false;
         const value = item as Partial<CartItem>;
-        return typeof value.id === 'string' && PRODUCTS.some(product => product.id === value.id) && Number.isInteger(value.quantity) && Number(value.quantity) >= 1 && Number(value.quantity) <= 20;
+        return typeof value.id === 'string' && products.some(product => product.id === value.id) && Number.isInteger(value.quantity) && Number(value.quantity) >= 1 && Number(value.quantity) <= 20;
       }));
     } catch(e) { localStorage.removeItem("xiuxiu_v4"); }
-  }, []);
+    setCartLoaded(true);
+  }, [products, productsLoaded]);
 
   useEffect(() => {
+    if (!cartLoaded) return;
     localStorage.setItem("xiuxiu_v4", JSON.stringify(cart));
-  }, [cart]);
+  }, [cart, cartLoaded]);
 
   const triggerFlyAnimation = (e: React.MouseEvent, imgSrc: string) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -112,7 +129,11 @@ export default function Home() {
     setCart(prev => prev.filter(i => i.id !== id));
   }
 
-  const pricing = calculateTotal(cart, giftOption);
+  const pricing = (() => {
+    const subtotal = cart.reduce((sum, item) => sum + (products.find(p => p.id === item.id)?.price || 0) * item.quantity, 0);
+    const gift_service_fee = giftOption === "shop" ? 3000 : 0;
+    return { subtotal, gift_service_fee, delivery_fee: 0, total: subtotal + gift_service_fee };
+  })();
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,6 +190,7 @@ export default function Home() {
 
   return (
     <main className="max-w-2xl mx-auto p-4 pt-10 relative">
+      {(loading || proofUploading) && <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 p-4" role="status" aria-live="polite"><div className="rounded-2xl border-2 border-black bg-white px-6 py-5 text-center shadow-sticker"><div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-pink-200 border-t-pink-600"/><p className="font-bold">{loading ? 'Đang tạo đơn hàng…' : 'Đang tải ảnh minh chứng…'}</p><p className="mt-1 text-sm text-gray-600">Vui lòng đợi, đừng đóng trang hoặc gửi lại.</p></div></div>}
       <AnimatePresence>
         {flyingImage && (
           <motion.img
@@ -210,7 +232,7 @@ export default function Home() {
           </section>
 
           <section className="grid gap-6 sm:grid-cols-2">
-            {PRODUCTS.map(p => (
+            {products.map(p => (
               <div key={p.id} className={`crayon-border ${p.color} p-4 shadow-sticker flex flex-col justify-between hover:scale-[1.02] transition-transform cursor-pointer`}
                 onClick={() => { setSelectedProduct(p); setDetailQty(1); setCurrentImgIdx(0); }}
               >
@@ -219,6 +241,7 @@ export default function Home() {
                     <Image src={p.images[0]} alt={p.name} fill className="object-cover" />
                   </div>
                   <h3 className="text-xl font-bold mb-2 break-words">{p.name}</h3>
+                  {p.desc && <p className="mb-3 text-sm text-gray-700">{p.desc}</p>}
                 </div>
                 <div className="flex justify-between items-center mt-2">
                   <span className="font-bold text-lg">{p.price.toLocaleString("vi-VN")}đ</span>
@@ -248,9 +271,10 @@ export default function Home() {
               <X size={20} />
             </button>
             
-            <div className="relative w-full aspect-square crayon-border overflow-hidden mb-6 bg-gray-100 z-10">
-              <Image src={selectedProduct.images[currentImgIdx]} alt="" fill className="object-cover" />
+            <div className="relative w-full aspect-square crayon-border overflow-hidden mb-3 bg-gray-100 z-10">
+              <Image src={selectedProduct.images[Math.min(currentImgIdx, selectedProduct.images.length - 1)] || "/images/hoa-xinh.svg"} alt={selectedProduct.name} fill className="object-cover" />
             </div>
+            {selectedProduct.images.length > 1 && <div className="mb-5 flex gap-2 overflow-x-auto pb-1">{selectedProduct.images.map((src, index) => <button key={`${src}-${index}`} onClick={() => setCurrentImgIdx(index)} aria-label={`Xem ảnh ${index + 1}`} className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border-2 ${currentImgIdx === index ? 'border-pink-600' : 'border-gray-300'}`}><Image src={src} alt={`${selectedProduct.name} ${index + 1}`} fill className="object-cover" /></button>)}</div>}
 
             <h2 className="text-2xl font-bold mb-2">{selectedProduct.name}</h2>
             <p className="text-xl font-bold text-pink-600 mb-4">{selectedProduct.price.toLocaleString("vi-VN")}đ</p>
@@ -289,7 +313,8 @@ export default function Home() {
              ) : (
                  <div className="space-y-6">
                    {cart.map(item => {
-                     const p = PRODUCTS.find(x => x.id === item.id)!;
+                     const p = products.find(x => x.id === item.id);
+                     if (!p) return null;
                      return (
                        <div key={item.id} className="flex gap-4 items-center border-b-2 border-dashed border-gray-300 pb-4">
                          <div className="w-20 h-20 relative crayon-border shrink-0">
@@ -350,8 +375,8 @@ export default function Home() {
                   <h3 className="font-bold text-xl mb-4">Thông tin nhận quà từ tiệm</h3>
                   <input required placeholder="Họ và tên cậu" className="crayon-input w-full" value={selfName} onChange={e => setSelfName(e.target.value)} />
                   <input required type="tel" placeholder="Số điện thoại" className="crayon-input w-full" value={selfPhone} onChange={e => setSelfPhone(e.target.value)} />
-                  <input required placeholder="Điểm nhận quà từ tiệm (lớp học, điểm hẹn...)" className="crayon-input w-full" value={selfAddress} onChange={e => setSelfAddress(e.target.value)} />
-                  <input required placeholder="Thời gian muốn giao" className="crayon-input w-full" value={selfTime} onChange={e => setSelfTime(e.target.value)} />
+                  <div><input required placeholder="Điểm nhận quà từ tiệm" className="crayon-input w-full" value={selfAddress} onChange={e => setSelfAddress(e.target.value)} /><p className="mt-1 text-xs text-gray-600">Ví dụ: lớp học, điểm hẹn…</p></div>
+                  <label className="block"><span className="mb-1 block text-sm font-bold">Thời gian muốn nhận</span><input required type="datetime-local" className="crayon-input w-full" value={selfTime} onChange={e => setSelfTime(e.target.value)} /></label>
                 </div>
               )}
 
@@ -360,7 +385,7 @@ export default function Home() {
                   <div className="crayon-border bg-bluey p-6 shadow-sticker space-y-4">
                     <h3 className="font-bold text-xl mb-2 flex items-center gap-2"><Heart size={20}/> Thông tin người gửi</h3>
                     <p className="text-xs font-medium mb-2">Phòng khi người nhận không liên hệ được thì hoàn lại cho bạn.</p>
-                    <input placeholder="Họ tên (Biệt danh, danh xưng đặc biệt... có thể bỏ trống)" className="crayon-input w-full" value={senderName} onChange={e => setSenderName(e.target.value)} />
+                    <div><input placeholder="Họ tên người gửi" className="crayon-input w-full" value={senderName} onChange={e => setSenderName(e.target.value)} /><p className="mt-1 text-xs text-gray-600">Có thể ghi biệt danh hoặc danh xưng đặc biệt.</p></div>
                     <input required type="tel" placeholder="Số điện thoại của bạn" className="crayon-input w-full" value={senderPhone} onChange={e => setSenderPhone(e.target.value)} />
                     <input required placeholder="Địa chỉ của bạn" className="crayon-input w-full" value={senderAddress} onChange={e => setSenderAddress(e.target.value)} />
                   </div>
@@ -368,9 +393,9 @@ export default function Home() {
                   <div className="crayon-border bg-pinky p-6 shadow-sticker space-y-4">
                     <h3 className="font-bold text-xl mb-2 flex items-center gap-2"><Send size={20}/> Thông tin người nhận</h3>
                     <input required placeholder="Họ tên người nhận" className="crayon-input w-full" value={recipName} onChange={e => setRecipName(e.target.value)} />
-                    <input required type="tel" placeholder="Số điện thoại người nhận" className="crayon-input w-full" value={recipPhone} onChange={e => setRecipPhone(e.target.value)} />
-                    <input required placeholder="Địa chỉ người nhận (Nhà ở, phòng học, thư viện...)" className="crayon-input w-full" value={recipAddress} onChange={e => setRecipAddress(e.target.value)} />
-                    <input required placeholder="Thời gian muốn giao" className="crayon-input w-full" value={recipTime} onChange={e => setRecipTime(e.target.value)} />
+                    <div><input required type="text" placeholder="SĐT hoặc link Facebook người nhận" className="crayon-input w-full" value={recipPhone} onChange={e => setRecipPhone(e.target.value)} /><p className="mt-1 text-xs text-gray-600">Nhập số điện thoại hoặc đường dẫn Facebook để tiệm liên hệ người nhận.</p></div>
+                    <div><input required placeholder="Địa chỉ người nhận" className="crayon-input w-full" value={recipAddress} onChange={e => setRecipAddress(e.target.value)} /><p className="mt-1 text-xs text-gray-600">Ví dụ: nhà ở, phòng học, thư viện…</p></div>
+                    <label className="block"><span className="mb-1 block text-sm font-bold">Thời gian muốn giao</span><input required type="datetime-local" className="crayon-input w-full" value={recipTime} onChange={e => setRecipTime(e.target.value)} /></label>
                     
                     <div>
                        <textarea maxLength={500} placeholder="Lời nhắn gửi kèm thiệp..." className="crayon-input w-full h-24 resize-none" value={recipMessage} onChange={e => setRecipMessage(e.target.value)} />
@@ -383,7 +408,7 @@ export default function Home() {
              {error && <p role="alert" className="rounded-xl border-2 border-red-600 bg-red-50 p-3 text-center font-bold text-red-700">{error}</p>}
              <div className="crayon-border bg-yellows p-6 shadow-sticker">
                  <h3 className="font-bold text-xl mb-2">Tổng kết</h3>
-                 <textarea placeholder="Ghi chú thêm cho tiệm (nếu có)" className="crayon-input w-full h-20 resize-none mb-4" value={note} onChange={e => setNote(e.target.value)} />
+                 <div className="mb-4"><textarea placeholder="Ghi chú thêm cho tiệm" className="crayon-input w-full h-20 resize-none" value={note} onChange={e => setNote(e.target.value)} /><p className="mt-1 text-xs text-gray-600">Không bắt buộc.</p></div>
                  <div className="flex justify-between font-bold text-2xl mb-4"><span>Tổng cộng:</span><span className="text-pink-600">{pricing.total.toLocaleString("vi-VN")}đ</span></div>
                  <label className="flex items-start gap-2 mb-4 cursor-pointer">
                     <input type="checkbox" required checked={consent} onChange={e=>setConsent(e.target.checked)} className="mt-1 w-5 h-5 shrink-0"/>
@@ -410,10 +435,10 @@ export default function Home() {
                  <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => { setProofFile(e.target.files?.[0] || null); setProofUploaded(false); setProofError(""); }} className="mt-3 block w-full text-sm" />
                  {proofFile && <p className="mt-2 break-words text-xs text-gray-600">Đã chọn: {proofFile.name} · {(proofFile.size / 1024 / 1024).toFixed(2)} MB</p>}
                  {proofError && <p role="alert" className="mt-2 text-sm font-medium text-red-600">{proofError}</p>}
-                 {proofUploaded ? <p className="mt-3 font-bold text-green-700">✓ Ảnh minh chứng đã gửi thành công.</p> : <button type="button" disabled={!proofFile || proofUploading} onClick={() => void handleProofUpload()} className="mt-3 w-full crayon-border bg-yellows py-3 font-bold disabled:opacity-50">{proofUploading ? "Đang tải ảnh…" : "Tải ảnh minh chứng lên"}</button>}
+                 {proofUploaded ? <p className="mt-3 font-bold text-green-700">✓ Ảnh minh chứng đã gửi thành công.</p> : <button type="button" disabled={!proofFile || proofUploading || loading} onClick={() => void handleProofUpload()} className="mt-3 w-full crayon-border bg-yellows py-3 font-bold disabled:opacity-50">{proofUploading ? "Đang tải ảnh…" : "Tải ảnh minh chứng lên"}</button>}
                </div>
                <p className="mt-4 text-sm leading-relaxed">Sau khi chuyển khoản và gửi ảnh, tiệm sẽ kiểm tra giao dịch. Đơn chưa được coi là đã thanh toán cho đến khi tiệm xác minh tiền thực nhận.</p>
-               <button disabled={!proofUploaded} onClick={handleFinalSubmit} className="mt-5 w-full crayon-border bg-greeny py-4 font-bold text-lg hover:bg-black hover:text-white transition-colors disabled:opacity-50">{proofUploaded ? "Đã gửi minh chứng, hoàn tất ♡" : "Tải ảnh minh chứng để hoàn tất"}</button>
+               <button disabled={!proofUploaded || proofUploading || loading} onClick={handleFinalSubmit} className="mt-5 w-full crayon-border bg-greeny py-4 font-bold text-lg hover:bg-black hover:text-white transition-colors disabled:opacity-50">{proofUploaded ? "Đã gửi minh chứng, hoàn tất ♡" : "Tải ảnh minh chứng để hoàn tất"}</button>
             </div>
          </div>
       )}

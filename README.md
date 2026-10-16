@@ -64,3 +64,23 @@ Set `VIETQR_BANK_ID`, `VIETQR_ACCOUNT_NO`, and `VIETQR_ACCOUNT_NAME` to the corr
 - The public payment-proof routes require a random order ID and accept only URLs in the configured Cloudinary account and expected folder. A proof upload does not change payment status.
 - The simple in-memory rate limit is per server instance, not distributed. Consider Vercel Firewall/Upstash for a public campaign.
 - Firestore is the source of truth. Old orders previously stored only in the old Sheets `Orders` tab will not automatically appear in the new dashboard; migrate them intentionally if needed.
+
+
+## Cập nhật quản lý sản phẩm và đồng bộ trạng thái Google Sheets
+
+### Quản lý sản phẩm
+- Đăng nhập `/admin`, tại mục **Quản lý sản phẩm** có thể tạo/sửa tên, giá, mô tả, trạng thái hiển thị và tải nhiều ảnh.
+- Ảnh được tải lên Cloudinary; thông tin sản phẩm lưu trong Firestore collection `products`.
+- Cấu hình Cloudinary hiện tại (`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_UPLOAD_PRESET`) được dùng cho cả ảnh sản phẩm và minh chứng chuyển khoản. Ảnh sản phẩm thật cần được chủ tiệm tải lên dashboard; các ảnh minh họa cũ vẫn được giữ làm mặc định.
+- Sản phẩm cũ trong `src/lib/pricing.ts` vẫn hiển thị làm mặc định và được hợp nhất với bản ghi Firestore cùng mã sản phẩm. Không xóa dữ liệu đơn hàng cũ.
+
+### Đồng bộ trạng thái đơn hàng hai chiều
+- Dashboard cập nhật Firestore trước, sau đó cập nhật hai cột **Trạng thái thanh toán** (V) và **Trạng thái đơn hàng** (W) của đơn tương ứng trong tab `Người tự nhận` hoặc `Người giao hộ`.
+- Để chỉnh trạng thái từ Google Sheets và đẩy về Firestore, mở **Extensions → Apps Script**, sao chép nội dung `scripts/google-sheets-on-edit.gs`, sửa `WEB_APP_URL` thành domain production của website và `SHARED_SECRET` thành giá trị `SHEETS_WEBHOOK_SECRET` trên Vercel.
+- Tạo **installable trigger** cho hàm `onEditOrderStatus` (event source: From spreadsheet; event type: On edit), cấp quyền khi Google yêu cầu. Dùng các giá trị trạng thái nội bộ như `paid`, `pending_confirmation`, `rejected`, `new`, `preparing`, `ready_for_pickup`, `delivered`, `cancelled` trong cột V/W; không nhập nhãn tiếng Việt vào các ô trạng thái.
+- Thêm `SHEETS_WEBHOOK_SECRET` trong Vercel Environment Variables và redeploy. Giữ bí mật này; không đặt trong client-side variables.
+- Các tab cũ `ContactInfo` và `Orders` được giữ nguyên. Hệ thống không tự xóa hoặc di chuyển dữ liệu cũ. Hai tab mới dùng hàng tiêu đề tiếng Việt theo `ORDER_HEADERS`.
+
+### Lưu ý triển khai
+- Sau khi cập nhật mã, chạy `npm ci` và `npm run build` trước khi deploy.
+- Nếu Google Sheets báo lỗi tiêu đề cột, kiểm tra hàng đầu tiên của đúng tab mới (`Người tự nhận` hoặc `Người giao hộ`) khớp với danh sách `ORDER_HEADERS` trong `src/lib/sheets.ts`. Không đổi tên/xóa dữ liệu các tab cũ chỉ để xử lý lỗi này.

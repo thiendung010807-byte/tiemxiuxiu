@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { adminDb, verifyAdminRequest } from '@/lib/firebase-admin';
+import { updateOrderStatusInSheet, type OrderTab } from '@/lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,8 +30,18 @@ export async function PATCH(request: Request) {
     const ref = adminDb().collection('orders').doc(orderId);
     const snap = await ref.get();
     if (!snap.exists) return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 });
-    await ref.update({ payment_status: paymentStatus, ...(orderStatus ? { order_status: orderStatus } : {}), updated_at: new Date().toISOString(), updated_by: admin.email });
-    return NextResponse.json({ ok: true });
+    const current = snap.data() || {};
+    const nextOrderStatus = orderStatus || String(current.order_status || 'new');
+    await ref.update({ payment_status: paymentStatus, order_status: nextOrderStatus, updated_at: new Date().toISOString(), updated_by: admin.email });
+    let sheetSync = true;
+    try {
+      const tab: OrderTab = current.gift_option === 'self' ? 'Người tự nhận' : 'Người giao hộ';
+      await updateOrderStatusInSheet(tab, orderId, paymentStatus, nextOrderStatus);
+    } catch (sheetError) {
+      sheetSync = false;
+      console.error('Order status sheet sync failed:', sheetError instanceof Error ? sheetError.message : 'unknown error');
+    }
+    return NextResponse.json({ ok: true, sheetSync });
   } catch (error) {
     console.error('Admin update order failed:', error instanceof Error ? error.message : 'unknown error');
     return NextResponse.json({ error: 'Không cập nhật được đơn trong Firebase' }, { status: 503 });

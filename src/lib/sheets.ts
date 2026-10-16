@@ -184,3 +184,28 @@ export async function appendOrderToSheet(
     },
   });
 }
+
+// Update status cells for an existing order without appending duplicate rows.
+export async function updateOrderStatusInSheet(
+  tab: OrderTab,
+  orderId: string,
+  paymentStatus: string,
+  orderStatus: string,
+) {
+  const { api, spreadsheetId } = getSheets();
+  await ensureTab(tab, ORDER_HEADERS);
+  const result = await api.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${tab}'!A2:A`,
+  });
+  const rows = result.data.values || [];
+  const index = rows.findIndex((row) => String(row[0] || '') === orderId);
+  if (index < 0) throw new Error(`Order ${orderId} was not found in ${tab}`);
+  const rowNumber = index + 2;
+  await api.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${tab}'!V${rowNumber}:W${rowNumber}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[safeCell(paymentStatus), safeCell(orderStatus)]] },
+  });
+}
