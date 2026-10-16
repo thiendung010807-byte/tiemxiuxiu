@@ -15,6 +15,8 @@ export default function AdminDashboard() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [activeTab, setActiveTab] = useState<'overview' | 'pending' | 'orders' | 'products'>('overview');
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [productId, setProductId] = useState('hoa-xinh');
   const [productName, setProductName] = useState('');
@@ -37,7 +39,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (!firebaseAuth) { setAuthReady(true); return; }
-    return onAuthStateChanged(firebaseAuth, current => { setUser(current); setAuthReady(true); });
+    return onAuthStateChanged(firebaseAuth, current => { setOrders([]); setAuthorizationChecked(false); setAccessDenied(false); setUser(current); setAuthReady(true); });
   }, []);
 
   const getToken = useCallback(async () => {
@@ -56,7 +58,7 @@ export default function AdminDashboard() {
         if (response.status === 403) { setAccessDenied(true); setOrders([]); }
         throw new Error(body.error || 'Không tải được đơn');
       }
-      setAccessDenied(false); setOrders(body.orders || []);
+      setAccessDenied(false); setOrders(body.orders || []); setNextCursor(body.nextCursor || null);
     } catch (e) { setError(e instanceof Error ? e.message : 'Có lỗi xảy ra'); }
     finally { setLoading(false); setAuthorizationChecked(true); }
   }, [getToken, user]);
@@ -74,6 +76,20 @@ export default function AdminDashboard() {
   }, [getToken, user]);
 
   useEffect(() => { if (user && authorizationChecked && !accessDenied) void loadProducts(); }, [user, authorizationChecked, accessDenied, loadProducts]);
+
+  const loadMoreOrders = async () => {
+    if (!user || !nextCursor) return;
+    setLoading(true); setError('');
+    try {
+      const token = await getToken();
+      const response = await fetch(`/api/admin/orders?cursor=${encodeURIComponent(nextCursor)}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Không tải thêm được đơn hàng');
+      setOrders(prev => [...prev, ...(body.orders || []).filter((o: Order) => !prev.some(p => p.order_id === o.order_id))]);
+      setNextCursor(body.nextCursor || null);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Không tải thêm được đơn'); }
+    finally { setLoading(false); }
+  };
 
   const selectProduct = (product: Product) => {
     setProductId(product.id); setProductName(product.name); setProductDesc(product.desc || '');
@@ -131,9 +147,22 @@ export default function AdminDashboard() {
     finally { setSaving(null); }
   };
 
+  const resyncSheet = async (orderId: string) => {
+    setSaving(orderId); setError('');
+    try {
+      const token = await getToken();
+      const response = await fetch('/api/admin/orders', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Không đồng bộ được Google Sheets');
+      await loadOrders();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Có lỗi khi đồng bộ lại'); }
+    finally { setSaving(null); }
+  };
+
   const filtered = useMemo(() => orders.filter(order => [order.order_id, order.customer_name, order.customer_phone, order.recipient_name].join(' ').toLowerCase().includes(query.toLowerCase()) && (paymentFilter === 'all' || order.payment_status === paymentFilter) && (orderFilter === 'all' || order.order_status === orderFilter)), [orders, query, paymentFilter, orderFilter]);
   const revenue = orders.filter(o => o.payment_status === 'paid').reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
   const waiting = orders.filter(o => o.payment_status === 'pending_confirmation').length;
+  const shownOrders = activeTab === 'pending' ? filtered.filter(o => o.payment_status === 'pending_confirmation') : activeTab === 'overview' ? filtered.slice(0, 5) : filtered;
 
   if (!authReady) return <div className="p-10 text-center">Đang kiểm tra đăng nhập…</div>;
   if (!firebaseConfigured || !firebaseAuth) return <div className="rounded-2xl border-2 border-dashed border-red-300 bg-white p-8"><h2 className="text-xl font-bold">Chưa cấu hình Firebase</h2><p className="mt-2 text-sm">Hãy điền các biến NEXT_PUBLIC_FIREBASE_* theo README và triển khai lại.</p></div>;
@@ -177,8 +206,11 @@ export default function AdminDashboard() {
   });
 }} className="inline-flex items-center gap-2 rounded-xl border-2 border-black bg-pinky px-3 py-2 font-bold"><LogOut size={16}/> Đăng xuất</button></div></div>
     {error && <div role="alert" className="rounded-xl border-2 border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-    <div className="grid gap-4 sm:grid-cols-3"><Metric icon={<PackageCheck/>} title="Tổng đơn" value={String(orders.length)}/><Metric icon={<Clock3/>} title="Chờ xác nhận tiền" value={String(waiting)}/><Metric icon={<Banknote/>} title="Doanh thu đã xác nhận" value={money(revenue)}/></div>
-    <section className="rounded-2xl border-2 border-black bg-white p-4 shadow-sticker space-y-4">
+    <nav aria-label="Các mục quản trị" className="grid grid-cols-2 gap-2 rounded-2xl border-2 border-black bg-white p-2 sm:grid-cols-4">
+      {([['overview','Tổng quan'],['pending','Chờ xác nhận'],['orders','Đơn hàng'],['products','Sản phẩm']] as const).map(([key, label]) => <button key={key} type="button" onClick={() => { setActiveTab(key); setPaymentFilter('all'); setOrderFilter('all'); setQuery(''); }} aria-current={activeTab === key ? 'page' : undefined} className={`rounded-xl px-3 py-3 text-sm font-bold transition-colors ${activeTab === key ? 'bg-pinky border-2 border-black' : 'bg-gray-50 border-2 border-transparent hover:bg-yellow-100'}`}>{label}{key === 'pending' ? ` (${waiting})` : ''}</button>)}
+    </nav>
+    {activeTab === 'overview' && <div className="space-y-3"><div className="grid gap-4 sm:grid-cols-3"><Metric icon={<PackageCheck/>} title="Đơn đã tải" value={String(orders.length)}/><Metric icon={<Clock3/>} title="Chờ xác nhận (đã tải)" value={String(waiting)}/><Metric icon={<Banknote/>} title="Doanh thu đã tải" value={money(revenue)}/></div><p className="text-xs text-gray-600">Các chỉ số tính trên đơn đã tải. Vào tab Đơn hàng và chọn “Tải thêm” để xem toàn bộ khi có nhiều đơn.</p></div>}
+    {activeTab === 'products' && <section className="rounded-2xl border-2 border-black bg-white p-4 shadow-sticker space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-xl font-bold">Quản lý sản phẩm</h2><button onClick={() => { setProductId(''); setProductName(''); setProductDesc(''); setProductDetails(''); setProductPrice(''); setProductColor('bg-pinky'); setProductImages([]); setProductActive(true); }} className="rounded-lg border-2 border-black bg-yellows px-3 py-2 text-sm font-bold">+ Sản phẩm mới</button></div>
       <div className="flex flex-wrap gap-2">{products.map(product => <button key={product.id} onClick={() => selectProduct(product)} className="rounded-lg border-2 border-black bg-paper px-3 py-2 text-sm font-bold">{product.name}</button>)}</div>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -193,14 +225,19 @@ export default function AdminDashboard() {
       </div>
       <button onClick={() => void saveProduct()} disabled={productSaving || productUploading || !productId.trim() || !productName.trim() || !productPrice || productImages.length === 0} className="rounded-xl border-2 border-black bg-greeny px-5 py-3 font-bold disabled:opacity-50">{productSaving ? 'Đang lưu…' : 'Lưu sản phẩm'}</button>
       <p className="text-xs text-gray-500">Ảnh và thông tin mới được lưu vào Firestore/Cloudinary; sản phẩm cũ vẫn được giữ nguyên nếu chưa chỉnh sửa.</p>
-    </section>
-    <div className="rounded-2xl border-2 border-black bg-white p-4 shadow-sticker"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-bold">Đơn hàng</h2><div className="flex flex-wrap gap-2"><label className="flex items-center gap-2 rounded-xl border-2 border-gray-200 px-3 py-2"><Search size={16}/><input className="min-w-0 outline-none" placeholder="Tìm mã, tên, số điện thoại" value={query} onChange={e => setQuery(e.target.value)}/></label><select aria-label="Lọc trạng thái thanh toán" value={paymentFilter} onChange={e => setPaymentFilter(e.target.value)} className="rounded-xl border-2 border-gray-200 px-3 py-2"><option value="all">Mọi trạng thái thanh toán</option><option value="pending_confirmation">Chờ xác nhận</option><option value="paid">Đã thanh toán</option><option value="rejected">Không khớp giao dịch</option></select><select aria-label="Lọc trạng thái đơn" value={orderFilter} onChange={e => setOrderFilter(e.target.value)} className="rounded-xl border-2 border-gray-200 px-3 py-2"><option value="all">Mọi trạng thái đơn</option>{Object.entries(statusLabels).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></div></div>
-      {loading ? <p className="p-8 text-center">Đang tải đơn…</p> : filtered.length === 0 ? <p className="p-8 text-center text-gray-500">Chưa có đơn phù hợp.</p> : <div className="space-y-4">{filtered.map(order => <article key={order.order_id} className="rounded-2xl border-2 border-dashed border-gray-300 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-bold text-pink-700">{order.order_id}</p><p className="text-sm text-gray-500">{order.created_at ? new Date(order.created_at).toLocaleString('vi-VN') : ''}</p><h3 className="mt-2 font-bold">{order.customer_name} · {order.customer_phone}</h3><p className="text-sm">{order.customer_address}</p></div><div className="text-right"><p className="text-xl font-bold">{money(order.total_amount)}</p><p className="text-sm">{paymentLabels[order.payment_status] || order.payment_status}</p><p className="text-sm">{statusLabels[order.order_status] || order.order_status}</p></div></div>
-      <div className="mt-3 rounded-xl bg-paper p-3 text-sm"><p><b>Hình thức:</b> {order.gift_option === 'shop' ? 'Tiệm gửi hộ (+3.000đ)' : 'Tự nhận/gửi'}</p>{order.gift_option === 'shop' && <><p><b>Người nhận:</b> {order.recipient_name} · {order.recipient_phone}</p><p><b>Địa chỉ:</b> {order.recipient_address}</p><p><b>Lời nhắn:</b> {order.card_message || '(không có)'}</p></>}<p className="mt-1"><b>Sản phẩm:</b> {formatProducts(order.products_json)}</p>{order.payment_proof_url && <p className="mt-2"><b>Ảnh minh chứng:</b> <a className="font-bold text-blue-700 underline" href={order.payment_proof_url} target="_blank" rel="noreferrer">Mở ảnh chuyển khoản ↗</a></p>}</div>
+    </section>}
+    {activeTab !== 'products' && <div className="rounded-2xl border-2 border-black bg-white p-4 shadow-sticker"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-bold">{activeTab === 'pending' ? 'Đơn chờ đối soát' : activeTab === 'overview' ? 'Đơn gần đây' : 'Tất cả đơn hàng'}</h2><div className="flex flex-wrap gap-2"><label className="flex items-center gap-2 rounded-xl border-2 border-gray-200 px-3 py-2"><Search size={16}/><input className="min-w-0 outline-none" placeholder="Tìm mã, tên, số điện thoại" value={query} onChange={e => setQuery(e.target.value)}/></label><select aria-label="Lọc trạng thái thanh toán" value={paymentFilter} onChange={e => setPaymentFilter(e.target.value)} className="rounded-xl border-2 border-gray-200 px-3 py-2"><option value="all">Mọi trạng thái thanh toán</option><option value="pending_confirmation">Chờ xác nhận</option><option value="paid">Đã thanh toán</option><option value="rejected">Không khớp giao dịch</option></select><select aria-label="Lọc trạng thái đơn" value={orderFilter} onChange={e => setOrderFilter(e.target.value)} className="rounded-xl border-2 border-gray-200 px-3 py-2"><option value="all">Mọi trạng thái đơn</option>{Object.entries(statusLabels).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></div></div>
+      {loading ? <p className="p-8 text-center">Đang tải đơn…</p> : shownOrders.length === 0 ? <p className="p-8 text-center text-gray-500">Chưa có đơn phù hợp.</p> : <div className="space-y-4">{shownOrders.map(order => <article key={order.order_id} className="rounded-2xl border-2 border-dashed border-gray-300 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-bold text-pink-700">{order.order_id}</p><p className="text-sm text-gray-500">{order.created_at ? new Date(order.created_at).toLocaleString('vi-VN') : ''}</p><h3 className="mt-2 font-bold">{order.customer_name} · {order.customer_phone}</h3><p className="text-sm">{order.customer_address}</p></div><div className="text-right"><p className="text-xl font-bold">{money(order.total_amount)}</p><p className="text-sm">{paymentLabels[order.payment_status] || order.payment_status}</p><p className="text-sm">{statusLabels[order.order_status] || order.order_status}</p></div></div>
+      <div className="mt-3 rounded-xl bg-paper p-3 text-sm space-y-1"><p><b>Người tạo đơn:</b> {order.customer_name} · {order.customer_phone} · {order.customer_address}</p>{order.customer_time && <p><b>Thời gian nhận:</b> {formatTime(order.customer_time)}</p>}<p><b>Hình thức:</b> {Number(order.card_count || 0) > 0 ? `Viết hộ ${order.card_count} thiệp (+${money(order.gift_service_fee)})` : order.gift_option === 'shop' ? 'Gửi hộ (đơn cũ)' : 'Nhận quà'}</p>{order.cards_json ? <div className="space-y-2 pt-2">{parseCards(order.cards_json).map((card, index) => <div key={index} className="rounded-lg border border-pink-300 bg-white p-3"><p className="font-bold">Thiệp {index + 1} · {card.deliveryToCustomer ? 'Giao về người tạo đơn' : 'Giao người nhận'}</p><p><b>Người nhận:</b> {card.actualRecipientName} · {card.actualRecipientContact}</p><p><b>Địa chỉ:</b> {card.actualRecipientAddress}</p><p><b>Người gửi trên thiệp:</b> {card.senderDisplayName || 'Ẩn danh'}</p><p><b>Giờ giao:</b> {formatTime(card.deliveryTime)}</p><p className="whitespace-pre-wrap"><b>Lời nhắn:</b> {card.message || '(trống)'}</p></div>)}</div> : order.gift_option === 'shop' && <><p><b>Người nhận:</b> {order.recipient_name} · {order.recipient_phone}</p><p><b>Địa chỉ:</b> {order.recipient_address}</p><p><b>Lời nhắn:</b> {order.card_message || '(không có)'}</p></>}<p className="mt-1"><b>Sản phẩm:</b> {formatProducts(order.products_json)}</p>{order.sheet_sync_status === 'failed' && <div className="mt-3 rounded-xl border border-amber-500 bg-yellow-50 p-3"><p className="font-bold text-amber-800">Google Sheets chưa đồng bộ đơn này.</p><button type="button" disabled={saving === order.order_id} onClick={() => void resyncSheet(order.order_id)} className="mt-2 rounded-lg border-2 border-black bg-white px-3 py-2 font-bold disabled:opacity-50">{saving === order.order_id ? 'Đang đồng bộ…' : 'Đồng bộ lại Sheet'}</button></div>}{order.payment_proof_url && <p className="mt-2"><b>Ảnh minh chứng:</b> <a className="font-bold text-blue-700 underline" href={order.payment_proof_url} target="_blank" rel="noreferrer">Mở ảnh chuyển khoản ↗</a></p>}</div>
       <div className="mt-3 flex flex-wrap gap-2"><button disabled={saving === order.order_id || order.payment_status === 'paid'} onClick={() => void update(order, 'paid')} className="inline-flex items-center gap-1 rounded-lg border-2 border-black bg-greeny px-3 py-2 text-sm font-bold disabled:opacity-50"><CheckCircle2 size={16}/> Xác nhận đã nhận tiền</button><button disabled={saving === order.order_id || order.payment_status === 'rejected'} onClick={() => void update(order, 'rejected')} className="inline-flex items-center gap-1 rounded-lg border-2 border-black bg-pinky px-3 py-2 text-sm font-bold disabled:opacity-50"><XCircle size={16}/> Không khớp giao dịch</button><select aria-label="Trạng thái đơn" value={order.order_status} disabled={saving === order.order_id} onChange={e => void update(order, order.payment_status, e.target.value)} className="rounded-lg border-2 border-black bg-white px-3 py-2 text-sm font-bold">{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div></article>)}</div>}
-    </div>
+      {nextCursor && activeTab === 'orders' && <button type="button" disabled={loading} onClick={() => void loadMoreOrders()} className="mt-4 w-full rounded-xl border-2 border-black bg-yellows px-4 py-3 font-bold disabled:opacity-50">{loading ? 'Đang tải…' : 'Tải thêm đơn hàng'}</button>}
+    </div>}
   </div>;
 }
 
 function Metric({ icon, title, value }: { icon: ReactNode; title: string; value: string }) { return <div className="rounded-2xl border-2 border-black bg-white p-5 shadow-sticker"><div className="flex items-center gap-2 text-gray-500">{icon}<span className="font-bold">{title}</span></div><p className="mt-3 text-3xl font-bold">{value}</p></div>; }
 function formatProducts(value: string) { try { return (JSON.parse(value) as Array<{name:string;quantity:number;line_total:number}>).map(p => `${p.name} × ${p.quantity} (${money(p.line_total)})`).join(', '); } catch { return value || '—'; } }
+
+type OrderCard = { recipientName: string; recipientContact: string; recipientAddress: string; senderDisplayName: string; deliveryTime: string; message: string; deliveryToCustomer: boolean; actualRecipientName: string; actualRecipientContact: string; actualRecipientAddress: string };
+function parseCards(value: string): OrderCard[] { try { const cards = JSON.parse(value); return Array.isArray(cards) ? cards : []; } catch { return []; } }
+function formatTime(value: string) { if (!value) return '—'; const d = new Date(value); return isNaN(d.getTime()) ? value : d.toLocaleString('vi-VN'); }

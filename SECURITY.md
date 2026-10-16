@@ -16,7 +16,8 @@
 
 ## Payment safety
 
-- The app does not automatically claim a transfer was received. Uploaded payment images are stored in Cloudinary and linked to a Firestore order, but do not change payment status.
+- Viewing a QR code does not write a Firestore or Sheets order. Photos upload to Cloudinary first; the final submit verifies the Cloudinary resource and creates the Firestore order, then syncs Sheets. This never automatically claims a transfer was received.
+- Configure a strong server-only ORDER_QUOTE_SECRET; if missing, CLOUDINARY_API_SECRET is used. Quotes expire after 90 minutes.
 - Verify the actual bank transaction independently before setting `payment_status=paid`.
 - Never request card details, bank passwords, OTPs, or identity documents.
 

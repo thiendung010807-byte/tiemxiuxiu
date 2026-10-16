@@ -173,6 +173,9 @@ export async function appendOrderToSheet(
   const { api, spreadsheetId } = getSheets();
 
   await ensureTab(tab, ORDER_HEADERS);
+  // Idempotent resync: never append a second row when the order ID is already present.
+  const existing = await api.spreadsheets.values.get({ spreadsheetId, range: `'${tab}'!A2:A` });
+  if ((existing.data.values || []).some(row => String(row[0] || '') === String(values[0]))) return;
 
   await api.spreadsheets.values.append({
     spreadsheetId,

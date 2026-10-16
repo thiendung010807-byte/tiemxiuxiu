@@ -13,12 +13,12 @@ export const PRODUCTS = [
   }
 ];
 
-export const calculateTotal = (items: { id: string; quantity: number }[], giftOption: "self" | "shop") => {
-  let subtotal = 0;
-  for (const item of items) {
-    const product = PRODUCTS.find((p) => p.id === item.id);
-    if (product) subtotal += product.price * item.quantity;
-  }
-  const gift_service_fee = giftOption === "shop" ? 3000 : 0;
+/** Every handwritten card costs 3,000 VND; shipping is always free. */
+export const calculateTotal = (items: { id: string; quantity: number }[], cardCount = 0) => {
+  const subtotal = items.reduce((total, item) => {
+    const product = PRODUCTS.find(p => p.id === item.id);
+    return total + (product?.price || 0) * item.quantity;
+  }, 0);
+  const gift_service_fee = Math.max(0, cardCount) * 3000;
   return { subtotal, gift_service_fee, delivery_fee: 0, total: subtotal + gift_service_fee };
 };

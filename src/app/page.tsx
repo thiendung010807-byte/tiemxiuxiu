@@ -1,11 +1,14 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { PRODUCTS } from "@/lib/pricing";
-import { ShoppingBag, Heart, Star, Sparkles, Send, Check, X, ChevronLeft, ChevronRight, Camera, Trash2 } from "lucide-react";
+import { ShoppingBag, Heart, Star, Sparkles, Send, X, ChevronLeft, ChevronRight, Trash2, Plus, MailHeart } from "lucide-react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 
 type CartItem = { id: string; quantity: number };
+type CardDraft = { id: string; recipientName: string; recipientContact: string; recipientAddress: string; senderDisplayName: string; deliveryTime: string; message: string };
+type PaymentSession = { id: string; total: number; qrUrl: string; bank: { bankId: string; accountNo: string; accountName: string }; quoteToken: string; expiresAt: number };
+const emptyCard = (): CardDraft => ({ id: crypto.randomUUID(), recipientName: '', recipientContact: '', recipientAddress: '', senderDisplayName: '', deliveryTime: '', message: '' });
 type Product = { id: string; name: string; desc: string; details: string; price: number; color: string; images: string[]; active?: boolean };
 
 export default function Home() {
@@ -23,33 +26,44 @@ export default function Home() {
   const [flyingImage, setFlyingImage] = useState<{ src: string, startX: number, startY: number, id: number } | null>(null);
   const cartIconRef = useRef<HTMLButtonElement>(null);
 
-  const [giftOption, setGiftOption] = useState<"self" | "shop">("self");
-  
   const [selfName, setSelfName] = useState("");
   const [selfPhone, setSelfPhone] = useState("");
   const [selfAddress, setSelfAddress] = useState("");
   const [selfTime, setSelfTime] = useState("");
-  
-  const [senderName, setSenderName] = useState(""); 
-  const [senderPhone, setSenderPhone] = useState("");
-  const [senderAddress, setSenderAddress] = useState("");
-  const [recipName, setRecipName] = useState("");
-  const [recipPhone, setRecipPhone] = useState("");
-  const [recipAddress, setRecipAddress] = useState("");
-  const [recipTime, setRecipTime] = useState("");
-  const [recipMessage, setRecipMessage] = useState("");
+  const [cards, setCards] = useState<CardDraft[]>([]);
+  const [cardIndex, setCardIndex] = useState(0);
+  const [cardDirection, setCardDirection] = useState(1);
 
   const [consent, setConsent] = useState(false);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [orderResult, setOrderResult] = useState<{id: string, total: number, qrUrl: string | null, bank: {bankId: string, accountNo: string, accountName: string} | null, sheetSync: boolean} | null>(null);
+  const [orderResult, setOrderResult] = useState<PaymentSession | null>(null);
+  const [proofInfo, setProofInfo] = useState<{ secureUrl: string; publicId: string } | null>(null);
+  const [finalizing, setFinalizing] = useState(false);
+  const [sheetWarning, setSheetWarning] = useState(false);
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofUploading, setProofUploading] = useState(false);
   const [proofUploaded, setProofUploaded] = useState(false);
   const [proofError, setProofError] = useState("");
 
   const totalQty = cart.reduce((a, b) => a + b.quantity, 0);
+  const currentCard = cards[cardIndex];
+  const updateCard = (field: keyof Omit<CardDraft, 'id'>, value: string) => setCards(prev => prev.map((card, index) => index === cardIndex ? { ...card, [field]: value } : card));
+  const addCard = () => { if (cards.length >= totalQty) return; setCardDirection(1); setCardIndex(cards.length); setCards(prev => [...prev, emptyCard()]); };
+  const removeCard = () => { setCardDirection(1); setCards(prev => prev.filter((_, index) => index !== cardIndex)); setCardIndex(prev => Math.max(0, Math.min(prev, cards.length - 2))); };
+
+  // Payment session lasts only in this browser tab; no order exists on the server yet.
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('xiuxiu_pending_payment');
+      if (!saved) return;
+      const value = JSON.parse(saved) as { quote: PaymentSession; proof: { secureUrl: string; publicId: string } | null };
+      if (value.quote.expiresAt > Date.now()) { setOrderResult(value.quote); setProofInfo(value.proof); setProofUploaded(Boolean(value.proof)); setStep('payment'); }
+      else sessionStorage.removeItem('xiuxiu_pending_payment');
+    } catch { sessionStorage.removeItem('xiuxiu_pending_payment'); }
+  }, []);
+
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -131,29 +145,29 @@ export default function Home() {
 
   const pricing = (() => {
     const subtotal = cart.reduce((sum, item) => sum + (products.find(p => p.id === item.id)?.price || 0) * item.quantity, 0);
-    const gift_service_fee = giftOption === "shop" ? 3000 : 0;
-    return { subtotal, gift_service_fee, delivery_fee: 0, total: subtotal + gift_service_fee };
+    const gift_service_fee = cards.length * 3000;
+    return { subtotal, gift_service_fee, total: subtotal + gift_service_fee };
   })();
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    if (!consent) { setError("Cậu nhớ tick đồng ý nhen!"); return; }
+    e.preventDefault(); setError("");
+    if (!consent) { setError("Cậu nhớ xác nhận đồng ý nhé!"); return; }
+    if (cards.length > totalQty) { setError("Số thiệp không được nhiều hơn số sản phẩm. Cậu kiểm tra lại nhé."); return; }
+    for (const card of cards) {
+      const filled = [card.recipientName, card.recipientContact, card.recipientAddress].filter(value => value.trim());
+      if (filled.length > 0 && filled.length < 3) { setError("Hãy điền đủ 3 thông tin người nhận trên mỗi thiệp, hoặc để trống cả 3 để giao về người đặt."); return; }
+      if (!card.deliveryTime) { setError("Mỗi thiệp cần có thời gian muốn giao."); return; }
+    }
     setLoading(true);
     try {
-      const payload = {
-        items: cart, giftOption, consent: true, note,
-        customer: giftOption === 'self'
-          ? { name: selfName, phone: selfPhone, address: selfAddress, time: selfTime }
-          : { name: senderName.trim() || 'Người đặt quà', phone: senderPhone, address: senderAddress, time: '' },
-        sender: giftOption === 'shop' ? { name: senderName, phone: senderPhone, address: senderAddress } : undefined,
-        recipient: giftOption === 'shop' ? { name: recipName, phone: recipPhone, address: recipAddress, time: recipTime, message: recipMessage } : undefined,
-      };
-      const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const payload = { items: cart, customer: { name: selfName, phone: selfPhone, address: selfAddress, time: cards.length ? '' : selfTime },
+        cards: cards.map(({ id, ...card }) => card), note, consent: true };
+      const response = await fetch('/api/orders/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error || 'Tiệm chưa tạo được đơn. Cậu thử lại nhé.');
-      setOrderResult({ id: body.orderId, total: body.total, qrUrl: body.qrUrl, bank: body.bank, sheetSync: body.sheetSync !== false });
-      setProofFile(null); setProofUploaded(false); setProofError("");
+      if (!response.ok) throw new Error(body.error || 'Tiệm chưa tạo được mã QR. Cậu thử lại nhé.');
+      const quote: PaymentSession = { id: body.orderId, total: body.total, qrUrl: body.qrUrl, bank: body.bank, quoteToken: body.quoteToken, expiresAt: body.expiresAt };
+      setOrderResult(quote); setProofInfo(null); setProofFile(null); setProofUploaded(false); setProofError("");
+      sessionStorage.setItem('xiuxiu_pending_payment', JSON.stringify({ quote, proof: null }));
       setStep('payment');
     } catch (err) { setError(err instanceof Error ? err.message : 'Lỗi kết nối. Cậu thử lại nhé.'); }
     finally { setLoading(false); }
@@ -161,11 +175,12 @@ export default function Home() {
 
   const handleProofUpload = async () => {
     if (!orderResult || !proofFile) { setProofError("Cậu chọn ảnh chụp giao dịch trước nhé."); return; }
-    if (!proofFile.type.startsWith("image/")) { setProofError("File phải là ảnh."); return; }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(proofFile.type)) { setProofError("Chỉ chấp nhận JPG, PNG hoặc WebP."); return; }
     if (proofFile.size > 5 * 1024 * 1024) { setProofError("Ảnh tối đa 5 MB nhé."); return; }
+    if (orderResult.expiresAt < Date.now()) { setProofError("Mã QR đã hết thời gian xác nhận. Cậu quay lại tạo QR mới nhé."); return; }
     setProofUploading(true); setProofError("");
     try {
-      const signResponse = await fetch("/api/payment-proof/sign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: orderResult.id }) });
+      const signResponse = await fetch("/api/payment-proof/sign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quoteToken: orderResult.quoteToken }) });
       const sign = await signResponse.json();
       if (!signResponse.ok) throw new Error(sign.error || "Không chuẩn bị được tải ảnh.");
       const form = new FormData();
@@ -174,23 +189,33 @@ export default function Home() {
       const uploadResponse = await fetch(`https://api.cloudinary.com/v1_1/${sign.cloudName}/image/upload`, { method: "POST", body: form });
       const uploaded = await uploadResponse.json();
       if (!uploadResponse.ok) throw new Error(uploaded.error?.message || "Cloudinary không nhận được ảnh.");
-      const saveResponse = await fetch("/api/payment-proof/confirm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: orderResult.id, secureUrl: uploaded.secure_url, publicId: uploaded.public_id }) });
-      const saved = await saveResponse.json();
-      if (!saveResponse.ok) throw new Error(saved.error || "Ảnh tải lên rồi nhưng chưa gắn được vào đơn.");
-      setProofUploaded(true);
+      const proof = { secureUrl: uploaded.secure_url as string, publicId: uploaded.public_id as string };
+      if (!proof.secureUrl || !proof.publicId) throw new Error('Ảnh tải lên không hợp lệ.');
+      setProofInfo(proof); setProofUploaded(true);
+      sessionStorage.setItem('xiuxiu_pending_payment', JSON.stringify({ quote: orderResult, proof }));
     } catch (err) { setProofError(err instanceof Error ? err.message : "Không tải được ảnh, cậu thử lại nhé."); }
     finally { setProofUploading(false); }
   };
 
-  const handleFinalSubmit = () => {
-    if (!proofUploaded) { setProofError("Cậu cần tải ảnh minh chứng trước khi hoàn tất nhé."); return; }
-    setCart([]);
-    setStep('success');
+  const handleFinalSubmit = async () => {
+    if (!orderResult || !proofInfo) { setProofError("Cậu cần tải ảnh minh chứng trước khi hoàn tất nhé."); return; }
+    if (orderResult.expiresAt < Date.now()) { setProofError('Mã QR đã hết hạn, vui lòng quay lại tạo lại mã QR.'); return; }
+    setFinalizing(true); setProofError('');
+    try {
+      const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quoteToken: orderResult.quoteToken, proofUrl: proofInfo.secureUrl, proofPublicId: proofInfo.publicId }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Không hoàn tất được đơn, cậu thử lại nhé.');
+      setSheetWarning(body.sheetSync === false);
+      sessionStorage.removeItem('xiuxiu_pending_payment');
+      setCart([]); setStep('success');
+    } catch (err) { setProofError(err instanceof Error ? err.message : 'Không hoàn tất được đơn, cậu thử lại nhé.'); }
+    finally { setFinalizing(false); }
   };
 
   return (
     <main className="max-w-2xl mx-auto p-4 pt-10 relative">
-      {(loading || proofUploading) && <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 p-4" role="status" aria-live="polite"><div className="rounded-2xl border-2 border-black bg-white px-6 py-5 text-center shadow-sticker"><div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-pink-200 border-t-pink-600"/><p className="font-bold">{loading ? 'Đang tạo đơn hàng…' : 'Đang tải ảnh minh chứng…'}</p><p className="mt-1 text-sm text-gray-600">Vui lòng đợi, đừng đóng trang hoặc gửi lại.</p></div></div>}
+      {(loading || proofUploading || finalizing) && <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 p-4" role="status" aria-live="polite"><div className="rounded-2xl border-2 border-black bg-white px-6 py-5 text-center shadow-sticker"><div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-pink-200 border-t-pink-600"/><p className="font-bold">{loading ? 'Đang chuẩn bị mã QR…' : finalizing ? 'Đang hoàn tất đơn hàng…' : 'Đang tải ảnh minh chứng…'}</p><p className="mt-1 text-sm text-gray-600">Vui lòng đợi, đừng đóng trang hoặc gửi lại.</p></div></div>}
       <AnimatePresence>
         {flyingImage && (
           <motion.img
@@ -358,87 +383,84 @@ export default function Home() {
                <ChevronLeft /> <span className="font-bold">Giỏ hàng</span>
              </div>
              
-             <div className="crayon-border bg-white p-6 shadow-sticker">
-                 <h3 className="font-bold text-xl mb-4 text-center">Chọn cách gửi</h3>
-                 <div className="flex gap-2 mb-2">
-                    <label className={`flex-1 p-3 cursor-pointer font-bold crayon-border ${giftOption==='self'?'bg-bluey':'bg-gray-100'}`}>
-                       <input type="radio" checked={giftOption==="self"} onChange={()=>setGiftOption("self")} className="mr-2"/>Tớ tự gửi
-                    </label>
-                    <label className={`flex-1 p-3 cursor-pointer font-bold crayon-border ${giftOption==='shop'?'bg-pinky':'bg-gray-100'}`}>
-                       <input type="radio" checked={giftOption==="shop"} onChange={()=>setGiftOption("shop")} className="mr-2"/>Tiệm gửi hộ (+3k/đơn)
-                    </label>
-                 </div>
+             <div className="crayon-border bg-bluey p-6 shadow-sticker space-y-4">
+               <h3 className="font-bold text-xl flex items-center gap-2"><Heart size={20}/> Thông tin người tạo đơn</h3>
+               <label className="block space-y-1"><span className="text-sm font-bold">Họ tên người tạo đơn *</span><input required maxLength={100} autoComplete="name" placeholder="Họ và tên của cậu" className="crayon-input w-full" value={selfName} onChange={e => setSelfName(e.target.value)} /></label>
+               <label className="block space-y-1"><span className="text-sm font-bold">Số điện thoại người tạo đơn *</span><input required type="tel" autoComplete="tel" placeholder="Số điện thoại liên hệ" className="crayon-input w-full" value={selfPhone} onChange={e => setSelfPhone(e.target.value)} /></label>
+               <label className="block space-y-1"><span className="text-sm font-bold">Địa chỉ người tạo đơn *</span><input required maxLength={300} autoComplete="street-address" placeholder="Địa chỉ nhận quà / điểm hẹn" className="crayon-input w-full" value={selfAddress} onChange={e => setSelfAddress(e.target.value)} /></label>
+               {cards.length === 0 && <label className="block space-y-1"><span className="text-sm font-bold">Thời gian muốn nhận *</span><input required type="datetime-local" className="crayon-input w-full" value={selfTime} onChange={e => setSelfTime(e.target.value)} /></label>}
+               <p className="text-xs text-gray-700">Mọi đơn đều được giao miễn phí. Khi viết hộ thiệp, thời gian giao được nhập riêng trên từng thiệp.</p>
              </div>
-             
-             {giftOption === "self" && (
-                <div className="crayon-border bg-bluey p-6 shadow-sticker space-y-4">
-                  <h3 className="font-bold text-xl mb-4">Thông tin nhận quà từ tiệm</h3>
-                  <input required placeholder="Họ và tên cậu" className="crayon-input w-full" value={selfName} onChange={e => setSelfName(e.target.value)} />
-                  <input required type="tel" placeholder="Số điện thoại" className="crayon-input w-full" value={selfPhone} onChange={e => setSelfPhone(e.target.value)} />
-                  <div><input required placeholder="Điểm nhận quà từ tiệm" className="crayon-input w-full" value={selfAddress} onChange={e => setSelfAddress(e.target.value)} /><p className="mt-1 text-xs text-gray-600">Ví dụ: lớp học, điểm hẹn…</p></div>
-                  <label className="block"><span className="mb-1 block text-sm font-bold">Thời gian muốn nhận</span><input required type="datetime-local" className="crayon-input w-full" value={selfTime} onChange={e => setSelfTime(e.target.value)} /></label>
-                </div>
-              )}
 
-              {giftOption === "shop" && (
-                <div className="space-y-6">
-                  <div className="crayon-border bg-bluey p-6 shadow-sticker space-y-4">
-                    <h3 className="font-bold text-xl mb-2 flex items-center gap-2"><Heart size={20}/> Thông tin người gửi</h3>
-                    <p className="text-xs font-medium mb-2">Phòng khi người nhận không liên hệ được thì hoàn lại cho bạn.</p>
-                    <div><input placeholder="Họ tên người gửi" className="crayon-input w-full" value={senderName} onChange={e => setSenderName(e.target.value)} /><p className="mt-1 text-xs text-gray-600">Có thể ghi biệt danh hoặc danh xưng đặc biệt.</p></div>
-                    <input required type="tel" placeholder="Số điện thoại của bạn" className="crayon-input w-full" value={senderPhone} onChange={e => setSenderPhone(e.target.value)} />
-                    <input required placeholder="Địa chỉ của bạn" className="crayon-input w-full" value={senderAddress} onChange={e => setSenderAddress(e.target.value)} />
-                  </div>
-
-                  <div className="crayon-border bg-pinky p-6 shadow-sticker space-y-4">
-                    <h3 className="font-bold text-xl mb-2 flex items-center gap-2"><Send size={20}/> Thông tin người nhận</h3>
-                    <input required placeholder="Họ tên người nhận" className="crayon-input w-full" value={recipName} onChange={e => setRecipName(e.target.value)} />
-                    <div><input required type="text" placeholder="SĐT hoặc link Facebook người nhận" className="crayon-input w-full" value={recipPhone} onChange={e => setRecipPhone(e.target.value)} /><p className="mt-1 text-xs text-gray-600">Nhập số điện thoại hoặc đường dẫn Facebook để tiệm liên hệ người nhận.</p></div>
-                    <div><input required placeholder="Địa chỉ người nhận" className="crayon-input w-full" value={recipAddress} onChange={e => setRecipAddress(e.target.value)} /><p className="mt-1 text-xs text-gray-600">Ví dụ: nhà ở, phòng học, thư viện…</p></div>
-                    <label className="block"><span className="mb-1 block text-sm font-bold">Thời gian muốn giao</span><input required type="datetime-local" className="crayon-input w-full" value={recipTime} onChange={e => setRecipTime(e.target.value)} /></label>
-                    
-                    <div>
-                       <textarea maxLength={500} placeholder="Lời nhắn gửi kèm thiệp..." className="crayon-input w-full h-24 resize-none" value={recipMessage} onChange={e => setRecipMessage(e.target.value)} />
-                       <p className="text-xs text-right mt-1 font-bold">{recipMessage.length}/500</p>
-                     </div>
-                  </div>
-                </div>
-              )}
+             {cards.length === 0 ? <button type="button" onClick={addCard} className="w-full crayon-border bg-pinky p-4 font-bold text-lg shadow-sticker flex justify-center gap-2 items-center hover:-translate-y-1 transition-transform"><MailHeart size={22}/> Viết hộ thiệp (+3.000đ/thiệp)</button> : (
+               <div className="space-y-3">
+                 <div className="flex items-center justify-between gap-3 flex-wrap"><h3 className="font-bold text-xl flex items-center gap-2"><MailHeart size={20}/> Viết hộ thiệp</h3><span className="rounded-full border-2 border-black bg-white px-4 py-2 font-bold" aria-live="polite">Thiệp {cardIndex + 1}/{cards.length}</span></div>
+                 <div className="flex flex-col sm:flex-row gap-3 items-stretch">
+                   <div className="min-w-0 flex-1 overflow-hidden">
+                     <AnimatePresence mode="wait" initial={false} custom={cardDirection}>
+                       {currentCard && <motion.div key={currentCard.id} custom={cardDirection}
+                         initial={{ x: cardDirection * 90, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -cardDirection * 90, opacity: 0 }}
+                         transition={{ duration: 0.22 }} className="crayon-border bg-pinky p-5 sm:p-6 shadow-sticker space-y-4">
+                         <div className="flex items-center gap-2"><Send size={20}/><b className="text-lg">Tấm thiệp xíu xiu #{cardIndex + 1}</b></div>
+                         <p className="text-sm">Nếu để trống cả 3 ô người nhận, tiệm sẽ viết hộ và giao thiệp đến <b>người tạo đơn</b> ở trên.</p>
+                         <label className="block space-y-1"><span className="font-bold text-sm">Tên người nhận</span><input maxLength={100} placeholder="Có thể để trống" className="crayon-input w-full" value={currentCard.recipientName} onChange={e => updateCard('recipientName', e.target.value)}/></label>
+                         <label className="block space-y-1"><span className="font-bold text-sm">SĐT / link Facebook người nhận</span><input maxLength={300} placeholder="Có thể để trống" className="crayon-input w-full" value={currentCard.recipientContact} onChange={e => updateCard('recipientContact', e.target.value)}/></label>
+                         <label className="block space-y-1"><span className="font-bold text-sm">Địa chỉ người nhận</span><input maxLength={300} placeholder="Có thể để trống" className="crayon-input w-full" value={currentCard.recipientAddress} onChange={e => updateCard('recipientAddress', e.target.value)}/></label>
+                         <label className="block space-y-1"><span className="font-bold text-sm">Tên người gửi hiển thị trên thiệp</span><input maxLength={100} placeholder="Biệt danh, danh xưng hoặc để trống (ẩn danh)" className="crayon-input w-full" value={currentCard.senderDisplayName} onChange={e => updateCard('senderDisplayName', e.target.value)}/></label>
+                         <label className="block space-y-1"><span className="font-bold text-sm">Thời gian muốn giao *</span><input required type="datetime-local" className="crayon-input w-full" value={currentCard.deliveryTime} onChange={e => updateCard('deliveryTime', e.target.value)}/></label>
+                         <label className="block space-y-1"><span className="font-bold text-sm">Lời nhắn gửi</span><textarea maxLength={500} placeholder="Viết điều muốn nhắn nhủ ở đây…" className="crayon-input w-full h-28 resize-none" value={currentCard.message} onChange={e => updateCard('message', e.target.value)}/><span className="block text-xs text-right">{currentCard.message.length}/500</span></label>
+                       </motion.div>}
+                     </AnimatePresence>
+                   </div>
+                   <div className="flex sm:flex-col gap-2 justify-center sm:justify-start sm:w-36 shrink-0">
+                     <button type="button" disabled={cards.length >= totalQty} onClick={addCard} className="rounded-xl border-2 border-black bg-greeny px-3 py-3 font-bold text-sm flex-1 sm:flex-none disabled:opacity-40 flex gap-2 items-center justify-center"><Plus size={18}/> Thêm thiệp</button>
+                     <button type="button" onClick={removeCard} className="rounded-xl border-2 border-black bg-white px-3 py-3 font-bold text-sm flex-1 sm:flex-none text-red-700 flex gap-2 items-center justify-center"><Trash2 size={18}/> Xóa thiệp</button>
+                   </div>
+                 </div>
+                 <div className="flex gap-3 items-center justify-center">
+                   <button type="button" disabled={cardIndex === 0} onClick={() => { setCardDirection(-1); setCardIndex(i => i - 1); }} aria-label="Thiệp trước" className="rounded-full border-2 border-black bg-white p-2 disabled:opacity-30"><ChevronLeft/></button>
+                   <span className="font-bold text-sm">Thiệp {cardIndex + 1} / {cards.length} · tối đa {totalQty} thiệp</span>
+                   <button type="button" disabled={cardIndex === cards.length - 1} onClick={() => { setCardDirection(1); setCardIndex(i => i + 1); }} aria-label="Thiệp sau" className="rounded-full border-2 border-black bg-white p-2 disabled:opacity-30"><ChevronRight/></button>
+                 </div>
+               </div>
+             )}
 
              {error && <p role="alert" className="rounded-xl border-2 border-red-600 bg-red-50 p-3 text-center font-bold text-red-700">{error}</p>}
              <div className="crayon-border bg-yellows p-6 shadow-sticker">
                  <h3 className="font-bold text-xl mb-2">Tổng kết</h3>
                  <div className="mb-4"><textarea placeholder="Ghi chú thêm cho tiệm" className="crayon-input w-full h-20 resize-none" value={note} onChange={e => setNote(e.target.value)} /><p className="mt-1 text-xs text-gray-600">Không bắt buộc.</p></div>
+                 <div className="space-y-2 border-t-2 border-dashed border-black/30 py-4 text-sm font-bold"><div className="flex justify-between"><span>Sản phẩm ({totalQty})</span><span>{pricing.subtotal.toLocaleString('vi-VN')}đ</span></div><div className="flex justify-between"><span>Viết hộ thiệp ({cards.length} × 3.000đ)</span><span>{pricing.gift_service_fee.toLocaleString('vi-VN')}đ</span></div></div>
                  <div className="flex justify-between font-bold text-2xl mb-4"><span>Tổng cộng:</span><span className="text-pink-600">{pricing.total.toLocaleString("vi-VN")}đ</span></div>
                  <label className="flex items-start gap-2 mb-4 cursor-pointer">
                     <input type="checkbox" required checked={consent} onChange={e=>setConsent(e.target.checked)} className="mt-1 w-5 h-5 shrink-0"/>
                     <span className="text-sm font-medium leading-tight">Tớ xác nhận các thông tin trên là chính xác và đồng ý cung cấp để tiệm liên hệ giao quà.</span>
                  </label>
-                 <button type="submit" disabled={loading} className="w-full crayon-border bg-white py-4 font-bold text-xl hover:bg-black hover:text-white transition-colors disabled:opacity-50">{loading ? "Đang tạo đơn…" : "Tạo đơn & xem mã QR 💸"}</button>
+                 <button type="submit" disabled={loading} className="w-full crayon-border bg-white py-4 font-bold text-xl hover:bg-black hover:text-white transition-colors disabled:opacity-50">{loading ? "Đang chuẩn bị QR…" : "Xem mã QR thanh toán 💸"}</button>
              </div>
          </form>
       )}
 
       {step === "payment" && orderResult && (
          <div className="space-y-6 animate-fade-in pb-10">
-            <div className="flex items-center gap-2 cursor-pointer" onClick={() => { setStep("shop"); }}><ChevronLeft /> <span className="font-bold">Về cửa tiệm</span></div>
+            <button className="flex items-center gap-2 font-bold" onClick={() => { sessionStorage.removeItem('xiuxiu_pending_payment'); setProofUploaded(false); setProofInfo(null); setOrderResult(null); setStep('checkout'); }}><ChevronLeft /> Sửa thông tin đơn hàng (tạo QR mới)</button>
+            <p className="text-xs text-amber-800">Chỉ sửa trước khi chuyển khoản. Nếu đã chuyển tiền, hãy liên hệ tiệm để đối soát mã đơn cũ.</p>
             <div className="crayon-border bg-white p-6 shadow-sticker max-w-sm mx-auto">
                <h3 className="font-bold text-2xl mb-2 text-center">Một bước nữa thui ♡</h3>
                <p className="text-sm text-center mb-4">Mã đơn: <b>{orderResult.id}</b></p>
                <p className="text-center text-3xl font-bold text-pink-600 mb-4">{orderResult.total.toLocaleString("vi-VN")}đ</p>
-               {orderResult.qrUrl ? <img src={orderResult.qrUrl} alt="Mã QR chuyển khoản cho đơn hàng" className="w-full aspect-square object-contain border-4 border-dashed border-black rounded-2xl p-2" /> : <div className="rounded-xl border-2 border-dashed border-red-300 bg-red-50 p-4 text-sm text-red-700">Tiệm chưa cấu hình tài khoản nhận tiền nên chưa tạo được mã QR. Đơn đã được ghi nhận; vui lòng liên hệ tiệm trước khi chuyển khoản.</div>}
+               <p className="mb-3 rounded-lg bg-bluey p-3 text-xs">Đơn <b>chưa được gửi vào hệ thống</b>. Cậu chuyển khoản, tải ảnh minh chứng rồi nhấn <b>Hoàn tất đơn</b> để tiệm ghi nhận nhé.</p>
+               <img src={orderResult.qrUrl} alt="Mã QR chuyển khoản cho đơn hàng" className="w-full aspect-square object-contain border-4 border-dashed border-black rounded-2xl p-2" />
                {orderResult.bank && <div className="mt-4 space-y-2 rounded-xl bg-paper p-3 text-sm"><p><b>Ngân hàng:</b> {orderResult.bank.bankId}</p><p><b>Số tài khoản:</b> {orderResult.bank.accountNo}</p><p><b>Chủ tài khoản:</b> {orderResult.bank.accountName}</p><p><b>Nội dung chuyển khoản:</b> TIEM {orderResult.id}</p><button onClick={() => navigator.clipboard?.writeText(`TIEM ${orderResult.id}`)} className="rounded-lg border border-black bg-white px-3 py-2 font-bold">Sao chép nội dung</button></div>}
-               {!orderResult.sheetSync && <p className="mt-3 rounded-lg bg-yellow-50 p-3 text-sm text-amber-800">Đơn đã lưu trong hệ thống; thông tin liên hệ chưa đồng bộ được sang Google Sheets. Tiệm vẫn nhận được đơn trong dashboard.</p>}
                <div className="mt-5 rounded-xl border-2 border-dashed border-black p-4">
                  <h4 className="font-bold text-lg">📸 Gửi ảnh minh chứng chuyển khoản</h4>
                  <p className="mt-1 text-sm">Chụp màn hình giao dịch sau khi chuyển khoản. Chỉ tải ảnh; tiệm vẫn sẽ đối chiếu tiền thực nhận.</p>
-                 <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => { setProofFile(e.target.files?.[0] || null); setProofUploaded(false); setProofError(""); }} className="mt-3 block w-full text-sm" />
+                 <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => { setProofFile(e.target.files?.[0] || null); setProofUploaded(false); setProofInfo(null); setProofError(""); if (orderResult) sessionStorage.setItem('xiuxiu_pending_payment', JSON.stringify({ quote: orderResult, proof: null })); }} className="mt-3 block w-full text-sm" />
                  {proofFile && <p className="mt-2 break-words text-xs text-gray-600">Đã chọn: {proofFile.name} · {(proofFile.size / 1024 / 1024).toFixed(2)} MB</p>}
                  {proofError && <p role="alert" className="mt-2 text-sm font-medium text-red-600">{proofError}</p>}
-                 {proofUploaded ? <p className="mt-3 font-bold text-green-700">✓ Ảnh minh chứng đã gửi thành công.</p> : <button type="button" disabled={!proofFile || proofUploading || loading} onClick={() => void handleProofUpload()} className="mt-3 w-full crayon-border bg-yellows py-3 font-bold disabled:opacity-50">{proofUploading ? "Đang tải ảnh…" : "Tải ảnh minh chứng lên"}</button>}
+                 {proofUploaded ? <p className="mt-3 font-bold text-green-700">✓ Đã tải ảnh lên. Hãy bấm hoàn tất để gửi đơn vào hệ thống.</p> : <button type="button" disabled={!proofFile || proofUploading || loading} onClick={() => void handleProofUpload()} className="mt-3 w-full crayon-border bg-yellows py-3 font-bold disabled:opacity-50">{proofUploading ? "Đang tải ảnh…" : "Tải ảnh minh chứng lên"}</button>}
                </div>
                <p className="mt-4 text-sm leading-relaxed">Sau khi chuyển khoản và gửi ảnh, tiệm sẽ kiểm tra giao dịch. Đơn chưa được coi là đã thanh toán cho đến khi tiệm xác minh tiền thực nhận.</p>
-               <button disabled={!proofUploaded || proofUploading || loading} onClick={handleFinalSubmit} className="mt-5 w-full crayon-border bg-greeny py-4 font-bold text-lg hover:bg-black hover:text-white transition-colors disabled:opacity-50">{proofUploaded ? "Đã gửi minh chứng, hoàn tất ♡" : "Tải ảnh minh chứng để hoàn tất"}</button>
+               <button disabled={!proofUploaded || proofUploading || loading || finalizing} onClick={() => void handleFinalSubmit()} className="mt-5 w-full crayon-border bg-greeny py-4 font-bold text-lg hover:bg-black hover:text-white transition-colors disabled:opacity-50">{finalizing ? "Đang lưu đơn…" : proofUploaded ? "Hoàn tất đơn hàng ♡" : "Tải ảnh minh chứng để hoàn tất"}</button>
             </div>
          </div>
       )}
@@ -447,7 +469,8 @@ export default function Home() {
          <div className="text-center py-20 animate-fade-in">
            <Heart className="mx-auto text-pinky fill-pinky animate-wiggle" size={80} />
            <h2 className="text-4xl font-bold mt-4">Thành công! 🎉</h2>
-           <p className="font-medium text-lg mt-2">Tiệm đã ghi nhận đơn của cậu.</p>
+           <p className="font-medium text-lg mt-2">Tiệm đã ghi nhận đơn của cậu vào Firebase.</p>
+           {sheetWarning && <p className="mx-auto mt-4 max-w-md rounded-lg bg-yellow-100 p-3 text-sm">Đơn đã có trong dashboard nhưng Google Sheets chưa đồng bộ. Tiệm cần kiểm tra lại cấu hình Sheets.</p>}
            <p className="text-sm font-medium mt-6 bg-bluey p-3 rounded-full border-2 border-black inline-block">
              Mã đơn: <span className="font-bold">{orderResult?.id || "—"}</span><br/>Trạng thái: <span className="font-bold">Chờ tiệm xác nhận thanh toán</span>
            </p>

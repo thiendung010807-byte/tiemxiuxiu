@@ -1,3 +1,5 @@
+> **Phiên bản mới (2026-10-16):** Xem [README-THAY-DOI-2026.md](README-THAY-DOI-2026.md) để đọc luồng đặt hàng, nhiều thiệp, bảng điều khiển, phí và bước ghi đơn mới. Các mô tả "ghi đơn ngay khi xem QR" / "ContactInfo" bên dưới là thông tin lịch sử từ phiên bản cũ.
+
 # Tiệm Xíu Xiu —
 
 Next.js 14 + TypeScript storefront. Firebase Firestore is the source of truth for orders; Google Sheets is only a small contact-information export; Cloudinary stores payment-proof images. Payment remains manually verified by the shop.
