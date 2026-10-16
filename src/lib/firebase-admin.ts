@@ -29,8 +29,11 @@ export async function verifyAdminRequest(request: Request) {
   try {
     const decoded = await getAuth(getAdminApp()).verifyIdToken(token, true);
     const email = (decoded.email || '').trim().toLowerCase();
-    const allowed = (process.env.ADMIN_EMAILS || '').split(',').map(v => v.trim().toLowerCase()).filter(Boolean);
-    if (!decoded.email_verified || !email || allowed.length === 0 || !allowed.includes(email)) return null;
+    const adminEmails = (process.env.ADMIN_EMAILS ?? "")
+  .split(",")
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
+    if (!decoded.email_verified || !email || adminEmails.length === 0 || !adminEmails.includes(email)) return null;
     return { uid: decoded.uid, email };
   } catch { return null; }
 }
