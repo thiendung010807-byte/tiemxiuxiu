@@ -25,10 +25,10 @@ export async function POST(request: Request) {
     const verifiedProof = await verifyUploadedProof(quote.orderId, proofPublicId, proofUrl);
     const { data } = quote;
     const cards = data.cards.map((card, index) => ({
-      ...card, number: index + 1, deliveryToCustomer: !card.recipientName,
-      actualRecipientName: card.recipientName || data.customer.name,
-      actualRecipientContact: card.recipientContact || data.customer.phone,
-      actualRecipientAddress: card.recipientAddress || data.customer.address,
+      ...card, number: index + 1, deliveryToCustomer: card.deliveryMode === 'customer',
+      actualRecipientName: card.deliveryMode === 'customer' ? data.customer.name : card.recipientName,
+      actualRecipientContact: card.deliveryMode === 'customer' ? data.customer.phone : card.recipientContact,
+      actualRecipientAddress: card.deliveryMode === 'customer' ? data.customer.address : card.recipientAddress,
     }));
     const firstCard = cards[0];
     const order = {

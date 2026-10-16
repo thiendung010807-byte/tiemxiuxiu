@@ -7,9 +7,9 @@ import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 
 type CartItem = { id: string; quantity: number };
-type CardDraft = { id: string; recipientName: string; recipientContact: string; recipientAddress: string; senderDisplayName: string; deliveryTime: string; message: string };
+type CardDraft = { id: string; deliveryMode: 'customer' | 'recipient'; recipientName: string; recipientContact: string; recipientAddress: string; senderDisplayName: string; deliveryTime: string; message: string };
 type PaymentSession = { id: string; total: number; qrUrl: string; bank: { bankId: string; accountNo: string; accountName: string }; quoteToken: string; expiresAt: number };
-const emptyCard = (): CardDraft => ({ id: crypto.randomUUID(), recipientName: '', recipientContact: '', recipientAddress: '', senderDisplayName: '', deliveryTime: '', message: '' });
+const emptyCard = (): CardDraft => ({ id: crypto.randomUUID(), deliveryMode: 'customer', recipientName: '', recipientContact: '', recipientAddress: '', senderDisplayName: '', deliveryTime: '', message: '' });
 type Product = { id: string; name: string; desc: string; details: string; price: number; color: string; images: string[]; active?: boolean };
 
 export default function Home() {
@@ -90,7 +90,7 @@ export default function Home() {
       if (Array.isArray(parsed)) setCart(parsed.filter((item: unknown): item is CartItem => {
         if (!item || typeof item !== 'object') return false;
         const value = item as Partial<CartItem>;
-        return typeof value.id === 'string' && products.some(product => product.id === value.id) && Number.isInteger(value.quantity) && Number(value.quantity) >= 1 && Number(value.quantity) <= 20;
+        return typeof value.id === 'string' && products.some(product => product.id === value.id) && Number.isInteger(value.quantity) && Number(value.quantity) >= 1 && Number(value.quantity) <= 9999;
       }));
     } catch(e) { localStorage.removeItem("xiuxiu_v4"); }
     setCartLoaded(true);
@@ -115,7 +115,7 @@ export default function Home() {
     
     setCart(prev => {
       const ex = prev.find(i => i.id === id);
-      if (ex) return prev.map(i => i.id === id ? { ...i, quantity: Math.min(i.quantity + qty, 20) } : i);
+      if (ex) return prev.map(i => i.id === id ? { ...i, quantity: Math.min(i.quantity + qty, 9999) } : i);
       return [...prev, { id, quantity: qty }];
     });
     
@@ -134,7 +134,7 @@ export default function Home() {
     setCart(prev => prev.map(i => {
       if (i.id === id) {
         const newQ = i.quantity + delta;
-        return newQ > 0 ? { ...i, quantity: Math.min(newQ, 20) } : i;
+        return newQ > 0 ? { ...i, quantity: Math.min(newQ, 9999) } : i;
       }
       return i;
     }).filter(i => i.quantity > 0));
@@ -156,14 +156,13 @@ export default function Home() {
     if (!consent) { setError("Cậu nhớ xác nhận đồng ý nhé!"); return; }
     if (cards.length > totalQty) { setError("Số thiệp không được nhiều hơn số sản phẩm. Cậu kiểm tra lại nhé."); return; }
     for (const card of cards) {
-      const filled = [card.recipientName, card.recipientContact, card.recipientAddress].filter(value => value.trim());
-      if (filled.length > 0 && filled.length < 3) { setError("Hãy điền đủ 3 thông tin người nhận trên mỗi thiệp, hoặc để trống cả 3 để giao về người đặt."); return; }
+      if (card.deliveryMode === 'recipient' && ![card.recipientName, card.recipientContact, card.recipientAddress].every(value => value.trim())) { setError('Vui lòng điền đủ thông tin người nhận cho thiệp giao hộ.'); return; }
       if (!card.deliveryTime) { setError("Mỗi thiệp cần có thời gian muốn giao."); return; }
     }
     setLoading(true);
     try {
       const payload = { items: cart, customer: { name: selfName, phone: selfPhone, address: selfAddress, time: cards.length ? '' : selfTime },
-        cards: cards.map(({ id, ...card }) => card), note, consent: true };
+        cards: cards.map(({ id, ...card }) => card.deliveryMode === 'customer' ? { ...card, recipientName: '', recipientContact: '', recipientAddress: '', senderDisplayName: '' } : card), note, consent: true };
       const response = await fetch('/api/orders/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Tiệm chưa tạo được mã QR. Cậu thử lại nhé.');
@@ -312,7 +311,7 @@ export default function Home() {
               <div className="flex items-center gap-3">
                 <button onClick={() => setDetailQty(Math.max(1, detailQty - 1))} className="w-8 h-8 rounded-full bg-white crayon-border font-bold text-xl flex items-center justify-center">-</button>
                 <span className="w-6 text-center font-bold text-xl">{detailQty}</span>
-                <button onClick={() => setDetailQty(Math.min(20, detailQty + 1))} className="w-8 h-8 rounded-full bg-white crayon-border font-bold text-xl flex items-center justify-center">+</button>
+                <button onClick={() => setDetailQty(Math.min(9999, detailQty + 1))} className="w-8 h-8 rounded-full bg-white crayon-border font-bold text-xl flex items-center justify-center">+</button>
               </div>
             </div>
 
@@ -406,13 +405,22 @@ export default function Home() {
                          initial={{ x: cardDirection * 90, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -cardDirection * 90, opacity: 0 }}
                          transition={{ duration: 0.22 }} className="crayon-border bg-pinky p-5 sm:p-6 shadow-sticker space-y-4">
                          <div className="flex items-center gap-2"><Send size={20}/><b className="text-lg">Tấm thiệp xíu xiu #{cardIndex + 1}</b></div>
-                         <p className="text-sm">Nếu để trống cả 3 ô người nhận, tiệm sẽ viết hộ và giao thiệp đến <b>người tạo đơn</b> ở trên.</p>
-                         <label className="block space-y-1"><span className="font-bold text-sm">Tên người nhận</span><input maxLength={100} placeholder="Có thể để trống" className="crayon-input w-full" value={currentCard.recipientName} onChange={e => updateCard('recipientName', e.target.value)}/></label>
-                         <label className="block space-y-1"><span className="font-bold text-sm">SĐT / link Facebook người nhận</span><input maxLength={300} placeholder="Có thể để trống" className="crayon-input w-full" value={currentCard.recipientContact} onChange={e => updateCard('recipientContact', e.target.value)}/></label>
-                         <label className="block space-y-1"><span className="font-bold text-sm">Địa chỉ người nhận</span><input maxLength={300} placeholder="Có thể để trống" className="crayon-input w-full" value={currentCard.recipientAddress} onChange={e => updateCard('recipientAddress', e.target.value)}/></label>
-                         <label className="block space-y-1"><span className="font-bold text-sm">Tên người gửi hiển thị trên thiệp</span><input maxLength={100} placeholder="Biệt danh, danh xưng hoặc để trống (ẩn danh)" className="crayon-input w-full" value={currentCard.senderDisplayName} onChange={e => updateCard('senderDisplayName', e.target.value)}/></label>
-                         <label className="block space-y-1"><span className="font-bold text-sm">Thời gian muốn giao *</span><input required type="datetime-local" className="crayon-input w-full" value={currentCard.deliveryTime} onChange={e => updateCard('deliveryTime', e.target.value)}/></label>
-                         <label className="block space-y-1"><span className="font-bold text-sm">Lời nhắn gửi</span><textarea maxLength={500} placeholder="Viết điều muốn nhắn nhủ ở đây…" className="crayon-input w-full h-28 resize-none" value={currentCard.message} onChange={e => updateCard('message', e.target.value)}/><span className="block text-xs text-right">{currentCard.message.length}/500</span></label>
+                         <fieldset className="space-y-2">
+                           <legend className="font-bold text-sm mb-2">Thiệp này sẽ được gửi đến đâu?</legend>
+                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                             <label className={`flex items-center gap-2 rounded-xl border-2 border-black p-3 cursor-pointer ${currentCard.deliveryMode === 'customer' ? 'bg-white' : 'bg-white/50'}`}><input type="radio" name={`delivery-${currentCard.id}`} checked={currentCard.deliveryMode === 'customer'} onChange={() => updateCard('deliveryMode', 'customer')} /> Gửi cho người tạo đơn</label>
+                             <label className={`flex items-center gap-2 rounded-xl border-2 border-black p-3 cursor-pointer ${currentCard.deliveryMode === 'recipient' ? 'bg-white' : 'bg-white/50'}`}><input type="radio" name={`delivery-${currentCard.id}`} checked={currentCard.deliveryMode === 'recipient'} onChange={() => updateCard('deliveryMode', 'recipient')} /> Giao hộ đến tay người nhận</label>
+                           </div>
+                           <p className="text-xs text-gray-700">Gửi cho người tạo đơn: thiệp sẽ dùng họ tên, số điện thoại và địa chỉ ở phần thông tin người tạo đơn; chỉ cần nhập thời gian nhận và lời nhắn.</p>
+                         </fieldset>
+                         {currentCard.deliveryMode === 'recipient' && <div className="space-y-4">
+                           <label className="block space-y-1"><span className="font-bold text-sm">Tên người nhận *</span><input required maxLength={100} className="crayon-input w-full" value={currentCard.recipientName} onChange={e => updateCard('recipientName', e.target.value)}/><span className="block text-xs text-gray-700">Họ tên hoặc tên thường gọi của người nhận.</span></label>
+                           <label className="block space-y-1"><span className="font-bold text-sm">SĐT / link Facebook người nhận *</span><input required maxLength={300} className="crayon-input w-full" value={currentCard.recipientContact} onChange={e => updateCard('recipientContact', e.target.value)}/><span className="block text-xs text-gray-700">Nhập số điện thoại hoặc đường dẫn Facebook hợp lệ để liên hệ giao quà.</span></label>
+                           <label className="block space-y-1"><span className="font-bold text-sm">Địa chỉ người nhận *</span><input required maxLength={300} className="crayon-input w-full" value={currentCard.recipientAddress} onChange={e => updateCard('recipientAddress', e.target.value)}/><span className="block text-xs text-gray-700">Ghi rõ địa chỉ hoặc điểm hẹn nhận quà.</span></label>
+                           <label className="block space-y-1"><span className="font-bold text-sm">Tên người gửi hiển thị trên thiệp</span><input maxLength={100} className="crayon-input w-full" value={currentCard.senderDisplayName} onChange={e => updateCard('senderDisplayName', e.target.value)}/><span className="block text-xs text-gray-700">Có thể ghi biệt danh, danh xưng; để trống nếu muốn ẩn danh.</span></label>
+                         </div>}
+                         <label className="block space-y-1"><span className="font-bold text-sm">{currentCard.deliveryMode === 'customer' ? 'Thời gian muốn nhận *' : 'Thời gian muốn giao *'}</span><input required type="datetime-local" className="crayon-input w-full" value={currentCard.deliveryTime} onChange={e => updateCard('deliveryTime', e.target.value)}/></label>
+                         <label className="block space-y-1"><span className="font-bold text-sm">Lời nhắn gửi</span><textarea maxLength={500} className="crayon-input w-full h-28 resize-none" value={currentCard.message} onChange={e => updateCard('message', e.target.value)}/><span className="block text-xs text-gray-700">Lời nhắn tiệm sẽ viết trên thiệp.</span><span className="block text-xs text-right">{currentCard.message.length}/500</span></label>
                        </motion.div>}
                      </AnimatePresence>
                    </div>

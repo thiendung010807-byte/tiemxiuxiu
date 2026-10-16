@@ -7,18 +7,18 @@ import { PRODUCTS, calculateVoucher } from '@/lib/pricing';
 const phone = z.string().trim().regex(/^[0-9+().\s-]{8,20}$/, 'Số điện thoại chưa hợp lệ');
 const contact = z.string().trim().max(300).refine(v => !v || /^[0-9+().\s-]{8,20}$/.test(v) || /^https?:\/\/(www\.|m\.)?(facebook\.com|fb\.com|fb\.me)\//i.test(v), 'Nhập số điện thoại hoặc đường dẫn Facebook hợp lệ');
 export const cardSchema = z.object({
+  deliveryMode: z.enum(['customer', 'recipient']),
   recipientName: z.string().trim().max(100), recipientContact: contact,
   recipientAddress: z.string().trim().max(300), senderDisplayName: z.string().trim().max(100),
   deliveryTime: z.string().trim().min(1, 'Vui lòng chọn thời gian giao thiệp').max(120),
   message: z.string().trim().max(500),
 }).superRefine((card, ctx) => {
-  const fields = [card.recipientName, card.recipientContact, card.recipientAddress];
-  if (fields.some(Boolean) && !fields.every(Boolean)) ctx.addIssue({ code: 'custom', message: 'Vui lòng điền đủ tên, liên hệ và địa chỉ người nhận, hoặc để trống cả 3 ô nếu gửi về người tạo đơn.' });
+  if (card.deliveryMode === 'recipient' && ![card.recipientName, card.recipientContact, card.recipientAddress].every(Boolean)) ctx.addIssue({ code: 'custom', message: 'Thiệp giao hộ cần đầy đủ tên, liên hệ và địa chỉ người nhận.' });
 });
 export const orderSchema = z.object({
-  items: z.array(z.object({ id: z.string().min(1).max(100), quantity: z.number().int().min(1).max(20) })).min(1).max(50),
+  items: z.array(z.object({ id: z.string().min(1).max(100), quantity: z.number().int().min(1).max(9999) })).min(1).max(50),
   customer: z.object({ name: z.string().trim().min(2).max(100), phone, address: z.string().trim().min(3).max(300), time: z.string().trim().max(120) }),
-  cards: z.array(cardSchema).max(40),
+  cards: z.array(cardSchema),
   note: z.string().trim().max(500).default(''), consent: z.literal(true),
 }).superRefine((data, ctx) => {
   const ids = new Set<string>();
@@ -78,7 +78,7 @@ export function signQuote(quote: Quote) {
   return `${encoded}.${createHmac('sha256', quoteSecret()).update(encoded).digest('base64url')}`;
 }
 export function verifyQuote(token: string): Quote {
-  if (!token || token.length > 120000) throw new Error('Phiên thanh toán không hợp lệ');
+  if (!token || token.length > 10000000) throw new Error('Phiên thanh toán không hợp lệ');
   const [encoded, signature, extra] = token.split('.');
   if (!encoded || !signature || extra) throw new Error('Phiên thanh toán không hợp lệ');
   const expected = createHmac('sha256', quoteSecret()).update(encoded).digest();
